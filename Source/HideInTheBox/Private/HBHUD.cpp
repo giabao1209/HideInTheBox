@@ -3,46 +3,96 @@
 #include "HBPlayerCharacter.h"
 #include "HBPlayerController.h"
 #include "HBEnemyCharacter.h"
+#include "HBLoadout.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimInstance.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+
+void AHBHUD::Label(const FString& Text, float fX, float fY, const FLinearColor& Color, float fScale)
+{
+    this->DrawText(Text, Color, fX, fY, GEngine->GetSmallFont(), fScale);
+}
+
+void AHBHUD::Panel(float fX, float fY, float fWidth, float fHeight, const FLinearColor& Accent)
+{
+    this->DrawRect(FLinearColor(0.005f, 0.009f, 0.018f, 0.93f), fX, fY, fWidth, fHeight);
+    this->DrawRect(Accent, fX, fY, 3.0f, fHeight);
+}
 
 void AHBHUD::DrawHUD()
 {
     Super::DrawHUD();
     AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
     AHBPlayerCharacter* Player = Mode ? Mode->GetPlayer() : nullptr;
-    if (!Mode || !Player || !this->Canvas)
+    AHBPlayerController* Controller = Cast<AHBPlayerController>(this->GetOwningPlayerController());
+    if (!Mode || !Player || !Controller || !this->Canvas || !GEngine)
     {
         return;
     }
-    const float fScale = FMath::Clamp(this->Canvas->ClipX / 1600.0f, 0.65f, 1.2f);
-    this->DrawRect(FLinearColor(0.02f, 0.03f, 0.05f, 0.88f), 12.0f, 12.0f, FMath::Min(this->Canvas->ClipX - 24.0f, 1250.0f * fScale), 224.0f * fScale);
-    const FString Title = FString::Printf(TEXT("VAULTBREAKER / %s / Cycle %d / %s"), *Mode->GetPhaseLabel(), Mode->GetCycle(), Player->UsesAttackMontage() ? TEXT("MONTAGE ASSIGNED") : TEXT("TIMED ATTACK"));
-    this->DrawText(Title, FLinearColor(0.3f, 0.9f, 1.0f), 24.0f, 22.0f, GEngine->GetMediumFont(), fScale);
-    const FString Stats = FString::Printf(TEXT("HP %.0f | MP %.0f | Stones %d | Threat %d | Gate %.0f | Anima %.0f | Wave %d / 5 | %.0fs | Enemies %d"),
-        Player->GetHealth(), Player->GetMana(), Mode->GetStones(), Mode->GetThreat(), Mode->GetGateHealth(), Mode->GetCoreHealth(), Mode->GetWave(), Mode->GetWaveSeconds(), Mode->GetEnemies().Num());
-    this->DrawText(Stats, FLinearColor::White, 24.0f, 54.0f * fScale, GEngine->GetSmallFont(), fScale);
-    this->DrawText(Mode->GetStatus(), FLinearColor::Yellow, 24.0f, 82.0f * fScale, GEngine->GetSmallFont(), fScale);
-    this->DrawText(TEXT("Mouse: LMB move/attack | Shift+LMB in place | RMB Pulse | WASD direct move"), FLinearColor::White, 24.0f, 110.0f * fScale, GEngine->GetSmallFont(), fScale);
-    this->DrawText(TEXT("Pad: LS move | RS aim | A attack/confirm | X Pulse | Y next phase | LB build | RB repair"), FLinearColor::White, 24.0f, 134.0f * fScale, GEngine->GetSmallFont(), fScale);
-    this->DrawText(TEXT("Enter next | B build | Tab/D-pad Right socket | R repair | Space/B-pad cancel | P/Start pause | F5/Back restart"), FLinearColor::White, 24.0f, 158.0f * fScale, GEngine->GetSmallFont(), fScale);
-    const AHBPlayerController* Controller = Cast<AHBPlayerController>(this->GetOwningPlayerController());
-    const FString Debug = FString::Printf(TEXT("%s | Command %d | Attack %s | Buffered %s | Hit count %d | Speed %.0f | Socket %d %s"),
-        Controller && Controller->IsUsingGamepad() ? TEXT("GAMEPAD") : TEXT("MOUSE/KEYBOARD"), static_cast<int32>(Player->GetCommand()), Player->IsAttacking() ? TEXT("yes") : TEXT("no"),
-        Player->HasBufferedCommand() ? TEXT("yes") : TEXT("no"), Player->GetHitCount(), Player->GetVelocity().Size2D(), Mode->GetBuildSocketIndex() + 1, Mode->IsBuildSocketOccupied() ? TEXT("occupied") : TEXT("empty"));
-    this->DrawText(Debug, FLinearColor(0.65f, 0.75f, 0.8f), 24.0f, 188.0f * fScale, GEngine->GetSmallFont(), fScale);
-    if (Controller && Controller->IsPaused())
+    const FLinearColor Ice(0.3f, 0.88f, 1.0f);
+    const FLinearColor Gold(1.0f, 0.72f, 0.28f);
+    const FLinearColor Muted(0.6f, 0.68f, 0.78f);
+    const float fWidth = this->Canvas->ClipX;
+    const float fHeight = this->Canvas->ClipY;
+    const float fScale = FMath::Clamp(fWidth / 1600.0f, 0.7f, 1.2f);
+    this->Panel(24.0f, 24.0f, 300.0f * fScale, 105.0f * fScale, Ice);
+    this->Label(TEXT("HIDE IN THE BOX"), 40.0f, 36.0f, Ice, 1.1f * fScale);
+    this->Label(FString::Printf(TEXT("%s   /   CYCLE %02d"), *Mode->GetPhaseLabel(), Mode->GetCycle()), 40.0f, 64.0f * fScale, FLinearColor::White, fScale);
+    this->Label(FString::Printf(TEXT("WAVE %d / 5    %.0fs    %d HOSTILES"), Mode->GetWave(), Mode->GetWaveSeconds(), Mode->GetEnemies().Num()), 40.0f, 93.0f * fScale, Muted, fScale);
+    this->Panel(fWidth - 280.0f * fScale - 24.0f, 24.0f, 280.0f * fScale, 105.0f * fScale, Gold);
+    const float fRightX = fWidth - 280.0f * fScale - 8.0f;
+    this->Label(FString::Printf(TEXT("%d   MAGIC STONES"), Mode->GetStones()), fRightX, 38.0f, Gold, fScale);
+    this->Label(FString::Printf(TEXT("THREAT %d   /   NEXT WAVE %d"), Mode->GetThreat(), HBRules::GetWaveEnemyCount(FMath::Max(1, Mode->GetWave()), Mode->GetThreat())), fRightX, 68.0f * fScale, Muted, fScale);
+    this->Label(FString::Printf(TEXT("GATE %.0f    ANIMA %.0f"), Mode->GetGateHealth(), Mode->GetCoreHealth()), fRightX, 94.0f * fScale, Ice, fScale);
+
+    const float fSlotWidth = 110.0f * fScale;
+    const float fBarWidth = 6.0f * fSlotWidth + 5.0f * 8.0f;
+    const float fLeft = (fWidth - fBarWidth) * 0.5f;
+    const float fTop = fHeight - 138.0f * fScale;
+    this->DrawRect(FLinearColor(0.1f, 0.025f, 0.035f), fLeft, fTop - 28.0f, fBarWidth * 0.5f - 8.0f, 5.0f);
+    this->DrawRect(FLinearColor(0.9f, 0.2f, 0.3f), fLeft, fTop - 28.0f, (fBarWidth * 0.5f - 8.0f) * FMath::Clamp(Player->GetHealth() / Player->GetMaxHealth(), 0.0f, 1.0f), 5.0f);
+    this->DrawRect(FLinearColor(0.03f, 0.05f, 0.14f), fLeft + fBarWidth * 0.5f, fTop - 28.0f, fBarWidth * 0.5f, 5.0f);
+    this->DrawRect(Ice, fLeft + fBarWidth * 0.5f, fTop - 28.0f, fBarWidth * 0.5f * Player->GetLoadout()->GetManaFraction(), 5.0f);
+    this->Label(FString::Printf(TEXT("HP %.0f / %.0f"), Player->GetHealth(), Player->GetMaxHealth()), fLeft, fTop - 53.0f, FLinearColor::White, fScale);
+    this->Label(FString::Printf(TEXT("MP %.0f"), Player->GetMana()), fLeft + fBarWidth * 0.5f, fTop - 53.0f, Ice, fScale);
+    const FLinearColor Colors[] = { Gold, FLinearColor(1.0f, 0.4f, 0.15f), Ice, FLinearColor(0.75f, 0.4f, 1.0f), FLinearColor(0.25f, 1.0f, 0.55f), FLinearColor(0.5f, 0.7f, 1.0f) };
+    for (int32 iSlot = 0; iSlot < 6; ++iSlot)
     {
-        this->DrawText(TEXT("PAUSED - release controls, then P / Start to resume"), FLinearColor::Yellow, 40.0f, 280.0f, GEngine->GetMediumFont());
+        const float fX = fLeft + iSlot * (fSlotWidth + 8.0f);
+        const FHBAbilitySpec Spec = Player->GetLoadout()->GetSlotSpec(iSlot);
+        const float fCooldown = Player->GetLoadout()->GetSlotCooldown(iSlot);
+        this->Panel(fX, fTop, fSlotWidth, 78.0f * fScale, Colors[static_cast<int32>(Player->GetLoadout()->GetSlotAbility(iSlot))]);
+        const FString KeyName = Controller->GetSlotKey(iSlot, Controller->IsUsingGamepad()).GetDisplayName().ToString();
+        this->Label(KeyName.Left(14), fX + 10.0f, fTop + 8.0f, Muted, 0.8f * fScale);
+        this->Label(Spec.Name.ToString(), fX + 10.0f, fTop + 31.0f * fScale, FLinearColor::White, fScale);
+        this->Label(fCooldown > 0.0f ? FString::Printf(TEXT("%.1fs"), fCooldown) : TEXT("READY"), fX + 10.0f, fTop + 55.0f * fScale, fCooldown > 0.0f ? Muted : Ice, 0.8f * fScale);
     }
-    if (!Player->IsAlive())
+    this->Label(Controller->GetLastActionResult(), fLeft, fTop - 82.0f, Muted, 0.85f * fScale);
+    const float fInfoY = 148.0f * fScale;
+    this->Label(Mode->GetStatus(), 28.0f, fInfoY, Gold, 0.9f * fScale);
+    const FString Controls = Controller->IsUsingGamepad() ? TEXT("D-pad Up: next phase   Down: build   Right: socket   Left: repair   L3: cache   R3: cancel   Start: pause") : TEXT("Enter: next phase   B: build   Tab: socket   R: repair   E: cache   Space: cancel   P: pause   F2: diagnostics");
+    this->Label(Controls, 28.0f, fHeight - 25.0f, Muted, 0.85f * fScale);
+    if (Player->IsBuilding())
     {
-        this->DrawText(TEXT("PLAYER DOWN"), FLinearColor::Red, 40.0f, 320.0f, GEngine->GetMediumFont());
+        this->Label(FString::Printf(TEXT("BUILD MODE  /  SOCKET %d  /  %s  /  30 STONES"), Mode->GetBuildSocketIndex() + 1, Mode->IsBuildSocketOccupied() ? TEXT("OCCUPIED") : TEXT("EMPTY")), 28.0f, fInfoY + 30.0f, Ice, fScale);
+    }
+    if (Mode->GetPhase() == EHBPhase::EHBP_Dungeon)
+    {
+        for (int32 iChest = 0; iChest < 3; ++iChest)
+        {
+            if (Mode->IsGreedClaimed(iChest))
+            {
+                continue;
+            }
+            const FVector Screen = this->Project(Mode->GetGreedPosition(iChest) + FVector(0.0f, 0.0f, 60.0f));
+            if (Screen.Z > 0.0f) { this->Label(TEXT("CACHE  +30 / +3 THREAT"), Screen.X - 70.0f, Screen.Y, Gold, 0.8f); }
+        }
     }
     for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Mode->GetEnemies())
     {
-        AHBEnemyCharacter* Enemy = Entry.Get();
+        const AHBEnemyCharacter* Enemy = Entry.Get();
         if (!IsValid(Enemy))
         {
             continue;
@@ -50,7 +100,24 @@ void AHBHUD::DrawHUD()
         const FVector Screen = this->Project(Enemy->GetActorLocation() + FVector(0.0f, 0.0f, 110.0f));
         if (Screen.Z > 0.0f)
         {
-            this->DrawText(FString::Printf(TEXT("%.0f"), Enemy->GetHealth()), FLinearColor::Red, Screen.X, Screen.Y, GEngine->GetSmallFont());
+            this->DrawRect(FLinearColor(0.03f, 0.01f, 0.01f, 0.9f), Screen.X - 25.0f, Screen.Y, 50.0f, 4.0f);
+            this->DrawRect(FLinearColor(0.9f, 0.2f, 0.18f), Screen.X - 25.0f, Screen.Y, 50.0f * FMath::Clamp(Enemy->GetHealth() / Enemy->GetMaxHealth(), 0.0f, 1.0f), 4.0f);
         }
+    }
+    if (this->bShowDiagnostics)
+    {
+        const float fY = fInfoY + 62.0f;
+        this->Panel(24.0f, fY, 790.0f * fScale, 155.0f * fScale, Muted);
+        this->Label(FString::Printf(TEXT("Map %s  |  GM %s"), *this->GetWorld()->GetMapName(), *Mode->GetClass()->GetName()), 36.0f, fY + 10.0f, Muted, 0.9f * fScale);
+        this->Label(FString::Printf(TEXT("Controller %s  |  Pawn %s"), *Controller->GetClass()->GetName(), *Player->GetClass()->GetName()), 36.0f, fY + 35.0f, Muted, 0.9f * fScale);
+        const UAnimInstance* Anim = Player->GetMesh()->GetAnimInstance();
+        this->Label(FString::Printf(TEXT("Anim %s  |  Playback %s  |  Outcome %s"), Anim ? *Anim->GetClass()->GetName() : TEXT("NONE"), *Player->GetAttackPlayback(), *Player->GetLastAttackOutcome()), 36.0f, fY + 60.0f, Ice, 0.9f * fScale);
+        this->Label(FString::Printf(TEXT("Command %d  Buffer %d  Attack %d  Dodge %d  Hits %d  Speed %.0f  Aim error %.1f"), static_cast<int32>(Player->GetCommand()), Player->HasBufferedCommand(), Player->IsAttacking(), Player->IsDodging(), Player->GetHitCount(), Player->GetVelocity().Size2D(), Player->GetAimError()), 36.0f, fY + 88.0f, FLinearColor::White, 0.9f * fScale);
+        this->Label(TEXT("Input -> command -> movement / montage -> notify -> damage -> feedback"), 36.0f, fY + 117.0f, Muted, 0.9f * fScale);
+    }
+    if (Controller->IsPaused() || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
+    {
+        this->DrawRect(FLinearColor(0.0f, 0.0f, 0.015f, 0.7f), 0.0f, fHeight * 0.4f, fWidth, 110.0f);
+        this->Label(Controller->IsPaused() ? TEXT("PAUSED   /   P or Start to resume") : TEXT("RUN ENDED   /   F5 or Back to restart"), fWidth * 0.5f - 180.0f, fHeight * 0.4f + 35.0f, Gold, 1.4f);
     }
 }

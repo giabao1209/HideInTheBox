@@ -14,11 +14,15 @@ public:
     UFUNCTION(BlueprintPure, Category="Combat") float GetHealth() const { return this->fHealth; }
     UFUNCTION(BlueprintPure, Category="Combat") bool IsAlive() const { return this->fHealth > 0.0f; }
     void RestoreHealth();
+    float Heal(float fAmount);
+    float GetMaxHealth() const { return this->fMaxHealth; }
 protected:
     virtual void BeginPlay() override;
     virtual void OnDeath();
     UPROPERTY(EditDefaultsOnly, Category="Combat", meta=(ClampMin="1")) float fMaxHealth = 100.0f;
     UPROPERTY(VisibleAnywhere, Category="Appearance") TObjectPtr<UStaticMeshComponent> Placeholder;
+    UPROPERTY(VisibleAnywhere, Category="Appearance") TObjectPtr<UStaticMeshComponent> FacingMarker;
+    UPROPERTY(EditDefaultsOnly, Category="Appearance") TObjectPtr<class UMaterialInterface> TintMaterial;
     UPROPERTY(EditDefaultsOnly, Category="Appearance") FLinearColor Tint = FLinearColor::White;
 private:
     UPROPERTY(VisibleInstanceOnly, Category="Combat") float fHealth = 100.0f;

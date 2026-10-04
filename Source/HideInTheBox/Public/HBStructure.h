@@ -15,6 +15,7 @@ class HIDEINTHEBOX_API AHBStructure : public AActor
 public:
     AHBStructure();
     void Configure(EHBStructure NewKind);
+    void SetTintMaterial(class UMaterialInterface* NewMaterial);
     virtual float TakeDamage(float fDamage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
     bool IsAlive() const { return this->fHealth > 0.0f; }
     float GetHealth() const { return this->fHealth; }
@@ -26,6 +27,8 @@ protected:
 private:
     void Fire();
     UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Mesh;
+    UPROPERTY() TObjectPtr<class UStaticMesh> SphereMesh;
+    UPROPERTY() TObjectPtr<class UStaticMesh> CylinderMesh;
     EHBStructure Kind = EHBStructure::EHBS_Gate;
     float fMaxHealth = 350.0f;
     float fHealth = 350.0f;

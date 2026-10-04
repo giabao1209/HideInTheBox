@@ -7,8 +7,11 @@
 #include "HideInTheBox.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/PointLight.h"
+#include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/LightComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/StaticMesh.h"
@@ -45,7 +48,7 @@ void AHBGameMode::StartPlay()
     {
         Player->ResetForPhase(FVector(-400.0f, 0.0f, 100.0f));
     }
-    this->Status = TEXT("Enter the dungeon with Enter / gamepad Y. Earn stones to build defenses.");
+    this->Status = TEXT("Enter the dungeon with Enter / D-pad Up. Earn stones to build defenses.");
 }
 
 void AHBGameMode::CreateArena()
@@ -57,6 +60,10 @@ void AHBGameMode::CreateArena()
     {
         Floor->SetMobility(EComponentMobility::Movable);
         Floor->GetStaticMeshComponent()->SetStaticMesh(this->CubeMesh);
+        if (this->FloorMaterial)
+        {
+            Floor->GetStaticMeshComponent()->SetMaterial(0, this->FloorMaterial);
+        }
         Floor->SetActorScale3D(FVector(40.0f, 32.0f, 1.0f));
         Floor->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
         Floor->GetStaticMeshComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
@@ -72,6 +79,10 @@ void AHBGameMode::CreateArena()
         {
             Wall->SetMobility(EComponentMobility::Movable);
             Wall->GetStaticMeshComponent()->SetStaticMesh(this->CubeMesh);
+            if (this->WallMaterial)
+            {
+                Wall->GetStaticMeshComponent()->SetMaterial(0, this->WallMaterial);
+            }
             Wall->SetActorScale3D(bAlongX ? FVector(0.5f, 32.0f, 2.0f) : FVector(40.0f, 0.5f, 2.0f));
             Wall->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
             Wall->GetStaticMeshComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Ignore);
@@ -82,14 +93,33 @@ void AHBGameMode::CreateArena()
     {
         Light->GetLightComponent()->SetIntensity(5.0f);
     }
+    for (int32 iIndex = 0; iIndex < 4; ++iIndex)
+    {
+        const FVector Position(iIndex < 2 ? -1300.0f : 1300.0f, iIndex % 2 == 0 ? -1100.0f : 1100.0f, 350.0f);
+        APointLight* Accent = this->GetWorld()->SpawnActor<APointLight>(Position, FRotator::ZeroRotator, Parameters);
+        if (Accent)
+        {
+            UPointLightComponent* Component = Cast<UPointLightComponent>(Accent->GetLightComponent());
+            if (Component)
+            {
+                Component->SetMobility(EComponentMobility::Movable);
+                Component->SetIntensity(3500.0f);
+                Component->SetAttenuationRadius(1300.0f);
+                Component->SetCastShadows(false);
+                Component->SetLightColor(iIndex < 2 ? FLinearColor(0.1f, 0.55f, 1.0f) : FLinearColor(1.0f, 0.35f, 0.08f));
+            }
+        }
+    }
     this->Gate = this->GetWorld()->SpawnActor<AHBStructure>(FVector(450.0f, 0.0f, 75.0f), FRotator::ZeroRotator, Parameters);
     this->Anima = this->GetWorld()->SpawnActor<AHBStructure>(FVector(-1000.0f, 0.0f, 75.0f), FRotator::ZeroRotator, Parameters);
     if (this->Gate)
     {
+        this->Gate->SetTintMaterial(this->TintMaterial);
         this->Gate->Configure(EHBStructure::EHBS_Gate);
     }
     if (this->Anima)
     {
+        this->Anima->SetTintMaterial(this->TintMaterial);
         this->Anima->Configure(EHBStructure::EHBS_Anima);
     }
 }
@@ -129,18 +159,32 @@ void AHBGameMode::AdvancePhase()
         Player->ResetForPhase(FVector(-700.0f, 0.0f, 100.0f));
         this->Gate->SetActorHiddenInGame(true);
         this->Anima->SetActorHiddenInGame(true);
-        for (AHBStructure* Turret : this->Turrets) { if (Turret) { Turret->SetActorHiddenInGame(true); } }
+        for (AHBStructure* Turret : this->Turrets)
+        {
+            if (Turret)
+            {
+                Turret->SetActorHiddenInGame(true);
+            }
+        }
         this->SpawnDungeon();
-        this->Status = TEXT("Clear all six enemies. LMB attacks; RMB / X uses Pulse (20 MP).");
+        this->SpawnGreedChests();
+        this->Status = TEXT("Clear all six enemies. LMB attacks; RMB / B-pad uses Pulse (20 MP).");
     }
     else if (this->Phase == EHBPhase::EHBP_Dungeon && this->Enemies.IsEmpty())
     {
+        this->ClearGreedChests();
         this->Transition(EHBPhase::EHBP_Return);
         Player->ResetForPhase(FVector(-400.0f, 0.0f, 100.0f));
         this->Gate->SetActorHiddenInGame(!this->Gate->IsAlive());
         this->Anima->SetActorHiddenInGame(false);
-        for (AHBStructure* Turret : this->Turrets) { if (Turret) { Turret->SetActorHiddenInGame(false); } }
-        this->Status = TEXT("Return prep: B / LB builds (30 stones), R / RB repairs gate (20). Enter / Y starts defense.");
+        for (AHBStructure* Turret : this->Turrets)
+        {
+            if (Turret)
+            {
+                Turret->SetActorHiddenInGame(false);
+            }
+        }
+        this->Status = TEXT("Return prep: B / D-pad Down builds (30 stones), R / D-pad Left repairs gate (20). Enter / D-pad Up starts defense.");
     }
     else if (this->Phase == EHBPhase::EHBP_Return)
     {
@@ -307,6 +351,7 @@ void AHBGameMode::RespawnPlayer()
 
 void AHBGameMode::EndRun()
 {
+    this->ClearGreedChests();
     this->Transition(EHBPhase::EHBP_GameOver);
     this->GetWorldTimerManager().ClearTimer(this->WaveTimer);
     this->GetWorldTimerManager().ClearTimer(this->BreakTimer);
@@ -358,10 +403,11 @@ void AHBGameMode::ConfirmBuild()
     AHBStructure* Turret = this->GetWorld()->SpawnActor<AHBStructure>(this->GetBuildSocket(), FRotator::ZeroRotator);
     if (Turret)
     {
+        Turret->SetTintMaterial(this->TintMaterial);
         Turret->Configure(EHBStructure::EHBS_Turret);
         this->Turrets[this->iBuildSocket] = Turret;
         this->iStones -= 30;
-        this->Status = TEXT("Turret built. B / LB leaves build mode; Enter / Y starts defense.");
+        this->Status = TEXT("Turret built. B / D-pad Down leaves build mode; Enter / D-pad Up starts defense.");
     }
 }
 
@@ -400,4 +446,69 @@ void AHBGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     this->GetWorldTimerManager().ClearAllTimersForObject(this);
     Super::EndPlay(EndPlayReason);
+}
+
+FVector AHBGameMode::GetGreedPosition(int32 iIndex) const
+{
+    const FVector Positions[] = { FVector(900.0f, -1000.0f, 45.0f), FVector(1500.0f, 0.0f, 45.0f), FVector(900.0f, 1000.0f, 45.0f) };
+    return iIndex >= 0 && iIndex < 3 ? Positions[iIndex] : FVector::ZeroVector;
+}
+
+void AHBGameMode::SpawnGreedChests()
+{
+    this->ClearGreedChests();
+    this->Greed.Reset();
+    for (int32 iIndex = 0; iIndex < 3; ++iIndex)
+    {
+        AStaticMeshActor* Chest = this->GetWorld()->SpawnActor<AStaticMeshActor>(this->GetGreedPosition(iIndex), FRotator::ZeroRotator);
+        this->GreedChests.Add(Chest);
+        if (Chest)
+        {
+            Chest->SetMobility(EComponentMobility::Movable);
+            Chest->GetStaticMeshComponent()->SetStaticMesh(this->CubeMesh);
+            Chest->SetActorScale3D(FVector(0.9f, 0.65f, 0.6f));
+            Chest->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            if (this->TintMaterial)
+            {
+                Chest->GetStaticMeshComponent()->SetMaterial(0, this->TintMaterial);
+            }
+            UMaterialInstanceDynamic* Material = Chest->GetStaticMeshComponent()->CreateAndSetMaterialInstanceDynamic(0);
+            if (Material) { Material->SetVectorParameterValue(TEXT("Color"), FLinearColor(1.0f, 0.6f, 0.08f)); }
+        }
+    }
+}
+
+void AHBGameMode::ClearGreedChests()
+{
+    for (AStaticMeshActor* Chest : this->GreedChests)
+    {
+        if (IsValid(Chest))
+        {
+            Chest->Destroy();
+        }
+    }
+    this->GreedChests.Reset();
+}
+
+void AHBGameMode::ClaimNearbyGreed()
+{
+    AHBPlayerCharacter* Player = this->GetPlayer();
+    if (this->Phase != EHBPhase::EHBP_Dungeon || !Player || !Player->IsAlive() || Player->IsAttacking() || Player->IsDodging())
+    {
+        return;
+    }
+    for (int32 iIndex = 0; iIndex < 3; ++iIndex)
+    {
+        if (this->GreedChests.IsValidIndex(iIndex) && IsValid(this->GreedChests[iIndex]) && FVector::DistSquaredXY(Player->GetActorLocation(), this->GetGreedPosition(iIndex)) <= FMath::Square(180.0f))
+        {
+            if (this->Greed.Claim(iIndex, this->iStones, this->iThreat))
+            {
+                this->GreedChests[iIndex]->Destroy();
+                this->GreedChests[iIndex] = nullptr;
+                this->Status = TEXT("Optional cache claimed: +30 stones, +3 Threat. Next defense gains one enemy per wave.");
+                return;
+            }
+        }
+    }
+    this->Status = TEXT("Move within 180 cm of an optional gold cache; E / Left-stick click opens it.");
 }

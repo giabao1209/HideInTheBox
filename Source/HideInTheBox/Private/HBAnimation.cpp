@@ -12,6 +12,7 @@ void UHBAnimInstance::NativeUpdateAnimation(float fDeltaSeconds)
     this->fRightSpeed = 0.0f;
     this->bFalling = false;
     this->bAttacking = false;
+    this->bDodging = false;
     if (Player)
     {
         const FVector Velocity = Player->GetVelocity();
@@ -20,6 +21,7 @@ void UHBAnimInstance::NativeUpdateAnimation(float fDeltaSeconds)
         this->fRightSpeed = FVector::DotProduct(Velocity, Player->GetActorRightVector());
         this->bFalling = Player->GetCharacterMovement()->IsFalling();
         this->bAttacking = Player->IsAttacking();
+        this->bDodging = Player->IsDodging();
     }
 }
 

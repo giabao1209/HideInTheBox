@@ -2,12 +2,15 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
+#include "Components/CapsuleComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/StaticMesh.h"
 
 AHBIndicator::AHBIndicator()
 {
-    this->PrimaryActorTick.bCanEverTick = false;
+    this->PrimaryActorTick.bCanEverTick = true;
+    this->PrimaryActorTick.bStartWithTickEnabled = false;
     this->Segments = this->CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("RingSegments"));
     this->SetRootComponent(this->Segments);
     this->Segments->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -67,7 +70,12 @@ AHBIndicator* UHBFeedbackComponent::CreateRing()
     FActorSpawnParameters Parameters;
     Parameters.Owner = this->GetOwner();
     Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    return this->GetWorld()->SpawnActor<AHBIndicator>(AHBIndicator::StaticClass(), FTransform::Identity, Parameters);
+    AHBIndicator* Ring = this->GetWorld()->SpawnActor<AHBIndicator>(AHBIndicator::StaticClass(), FTransform::Identity, Parameters);
+    if (Ring)
+    {
+        Ring->SetRingMaterial(this->RingMaterial);
+    }
+    return Ring;
 }
 
 void UHBFeedbackComponent::BeginPlay()
@@ -90,7 +98,8 @@ void UHBFeedbackComponent::ShowActorRing(AHBIndicator* Ring, AActor* Target, flo
         return;
     }
     FVector Position = Target->GetActorLocation();
-    Position.Z -= 88.0f;
+    const ACharacter* Character = Cast<ACharacter>(Target);
+    Position.Z -= Character ? Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.0f;
     Ring->ShowAt(Position, 58.0f, fThickness, Color);
 }
 
@@ -118,6 +127,14 @@ void UHBFeedbackComponent::HideAll()
 
 void UHBFeedbackComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    for (const TWeakObjectPtr<AHBIndicator>& Effect : this->Effects)
+    {
+        if (Effect.IsValid())
+        {
+            Effect->Destroy();
+        }
+    }
+    this->Effects.Reset();
     if (IsValid(this->MoveRing))
     {
         this->MoveRing->Destroy();
@@ -131,4 +148,53 @@ void UHBFeedbackComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
         this->TargetRing->Destroy();
     }
     Super::EndPlay(EndPlayReason);
+}
+
+void AHBIndicator::SetRingMaterial(UMaterialInterface* NewMaterial)
+{
+    if (NewMaterial)
+    {
+        this->Segments->SetMaterial(0, NewMaterial);
+        this->Material = this->Segments->CreateAndSetMaterialInstanceDynamic(0);
+    }
+}
+
+void AHBIndicator::PlayBurst(const FVector& Position, float fRadius, const FLinearColor& Color, float fDuration)
+{
+    this->fBurstRadius = fRadius;
+    this->fBurstDuration = FMath::Max(0.05f, fDuration);
+    this->fBurstElapsed = 0.0f;
+    this->ShowAt(Position, fRadius * 0.3f, 3.0f, Color);
+    this->SetActorTickEnabled(true);
+    this->SetLifeSpan(this->fBurstDuration);
+}
+
+void AHBIndicator::Tick(float fDeltaSeconds)
+{
+    Super::Tick(fDeltaSeconds);
+    this->fBurstElapsed += fDeltaSeconds;
+    const float fAlpha = FMath::Clamp(this->fBurstElapsed / this->fBurstDuration, 0.0f, 1.0f);
+    const float fRadius = this->fBurstRadius * FMath::Lerp(0.3f, 1.0f, fAlpha);
+    this->SetActorScale3D(FVector(fRadius, fRadius, 1.0f));
+    if (this->Material)
+    {
+        this->Material->SetScalarParameterValue(TEXT("Opacity"), 1.0f - fAlpha);
+    }
+}
+
+void UHBFeedbackComponent::PlayEffect(const FVector& Position, float fRadius, const FLinearColor& Color)
+{
+    for (int32 iIndex = this->Effects.Num() - 1; iIndex >= 0; --iIndex)
+    {
+        if (!this->Effects[iIndex].IsValid())
+        {
+            this->Effects.RemoveAtSwap(iIndex);
+        }
+    }
+    AHBIndicator* Effect = this->CreateRing();
+    if (Effect)
+    {
+        this->Effects.Add(Effect);
+        Effect->PlayBurst(Position, fRadius, Color, 0.35f);
+    }
 }
