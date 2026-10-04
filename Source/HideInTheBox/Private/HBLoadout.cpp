@@ -1,4 +1,5 @@
 #include "HBLoadout.h"
+#include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
 #include "Engine/World.h"
 
@@ -34,6 +35,7 @@ void UHBLoadoutComponent::BeginPlay()
     Super::BeginPlay();
     if (!this->Definition || this->Definition->Abilities.Num() != HBRuleCore::iAbilityCount || this->Definition->InitialSlots.Num() != HBRuleCore::iSlotCount)
     {
+        this->bUsedDefaultDefinition = true;
         this->Definition = NewObject<UHBLoadoutData>(this);
     }
     this->Slots = this->Definition->InitialSlots;
@@ -82,6 +84,7 @@ float UHBLoadoutComponent::GetSlotCooldown(int32 iSlot) const
 
 EHBActionResult UHBLoadoutComponent::Resolve(int32 iSlot, EHBActionResult Result)
 {
+    UHBDebugSubsystem::Record(this, TEXT("Combat"), FString::Printf(TEXT("Slot %d result=%s MP=%.1f"), iSlot, *StaticEnum<EHBActionResult>()->GetNameStringByValue(static_cast<int64>(Result)), this->fMana));
     this->OnActionResolved.Broadcast(iSlot, Result);
     return Result;
 }
@@ -137,4 +140,20 @@ void UHBLoadoutComponent::ResetResources()
 {
     this->fMana = this->Definition ? FMath::Max(1.0f, this->Definition->fMaxMana) : 100.0f;
     this->Budget.Reset();
+}
+
+void UHBLoadoutComponent::AppendDebugChecks(TArray<FString>& Checks) const
+{
+    Checks.Add(this->bUsedDefaultDefinition ? TEXT("INFO Loadout: native fallback used (missing/invalid Definition arrays).") : TEXT("OK Loadout: configured Data Asset loaded."));
+    if (!this->Definition)
+    {
+        Checks.Add(TEXT("ERROR Loadout: no runtime definition."));
+        return;
+    }
+    bool bValid = FMath::IsFinite(this->Definition->fMaxMana) && this->Definition->fMaxMana > 0.0f && FMath::IsFinite(this->Definition->fManaRegeneration) && this->Definition->fManaRegeneration >= 0.0f;
+    for (const FHBAbilitySpec& Spec : this->Definition->Abilities)
+    {
+        bValid = bValid && FMath::IsFinite(Spec.fManaCost) && Spec.fManaCost >= 0.0f && FMath::IsFinite(Spec.fCooldown) && Spec.fCooldown >= 0.0f && FMath::IsFinite(Spec.fPower) && Spec.fPower >= 0.0f && FMath::IsFinite(Spec.fRange) && Spec.fRange > 0.0f && FMath::IsFinite(Spec.fRadius) && Spec.fRadius > 0.0f && FMath::IsFinite(Spec.fDuration) && Spec.fDuration > 0.0f;
+    }
+    Checks.Add(bValid ? TEXT("OK Loadout: finite, valid ability/resource values.") : TEXT("ERROR Loadout: invalid number/range; inspect DA_DemoLoadout."));
 }

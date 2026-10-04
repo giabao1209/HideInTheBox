@@ -1,4 +1,5 @@
 #include "HBGameMode.h"
+#include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
 #include "HBPlayerController.h"
 #include "HBEnemyCharacter.h"
@@ -131,6 +132,7 @@ AHBPlayerCharacter* AHBGameMode::GetPlayer() const
 
 void AHBGameMode::Transition(EHBPhase NewPhase)
 {
+    UHBDebugSubsystem::Record(this, TEXT("System"), FString::Printf(TEXT("Phase %d -> %d"), static_cast<int32>(this->Phase), static_cast<int32>(NewPhase)));
     this->Phase = NewPhase;
     AHBPlayerController* Controller = Cast<AHBPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
     if (Controller)

@@ -20,6 +20,7 @@ public:
     AHBPlayerCharacter();
     virtual void Tick(float fDeltaSeconds) override;
     virtual void UnPossessed() override;
+    void AppendDebugChecks(TArray<FString>& Checks) const;
     void RequestMove(const FVector& Position);
     void RequestAttack(AHBEnemyCharacter* Target, bool bInPlace);
     void SetDirectInput(const FVector2D& Input);
