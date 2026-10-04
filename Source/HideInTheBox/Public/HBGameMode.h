@@ -26,6 +26,9 @@ public:
     void CycleBuildSocket();
     void ConfirmBuild();
     void RepairGate();
+    void ClaimNearbyGreed();
+    FVector GetGreedPosition(int32 iIndex) const;
+    bool IsGreedClaimed(int32 iIndex) const { return this->Greed.IsClaimed(iIndex); }
     AHBPlayerCharacter* GetPlayer() const;
     AHBStructure* GetDefenseTarget() const;
     AHBEnemyCharacter* FindEnemy(const FVector& Origin, const FVector& Aim, float fRange) const;
@@ -46,12 +49,17 @@ public:
 protected:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     UPROPERTY(EditDefaultsOnly, Category="Demo") TSubclassOf<AHBEnemyCharacter> EnemyClass;
+    UPROPERTY(EditDefaultsOnly, Category="Presentation") TObjectPtr<class UMaterialInterface> FloorMaterial;
+    UPROPERTY(EditDefaultsOnly, Category="Presentation") TObjectPtr<class UMaterialInterface> WallMaterial;
+    UPROPERTY(EditDefaultsOnly, Category="Presentation") TObjectPtr<class UMaterialInterface> TintMaterial;
     UPROPERTY(EditDefaultsOnly, Category="Demo", meta=(ClampMin="1")) int32 iDungeonEnemyCount = 6;
     UPROPERTY(EditDefaultsOnly, Category="Demo", meta=(ClampMin="1")) int32 iWavesPerDefense = 5;
     UPROPERTY(EditDefaultsOnly, Category="Demo", meta=(ClampMin="5")) float fWaveDuration = 40.0f;
 private:
     void CreateArena();
     void SpawnDungeon();
+    void SpawnGreedChests();
+    void ClearGreedChests();
     void SpawnWave();
     void MonitorWave();
     void CompleteDefense();
@@ -64,6 +72,8 @@ private:
     UPROPERTY(Transient) TObjectPtr<AHBStructure> Anima;
     UPROPERTY(Transient) TArray<TObjectPtr<AHBStructure>> Turrets;
     TArray<TWeakObjectPtr<AHBEnemyCharacter>> Enemies;
+    UPROPERTY(Transient) TArray<TObjectPtr<class AStaticMeshActor>> GreedChests;
+    HBRuleCore::FGreedLedger Greed;
     EHBPhase Phase = EHBPhase::EHBP_Town;
     int32 iStones = 0;
     int32 iThreat = 0;

@@ -1,70 +1,42 @@
-# Kịch bản demo và bằng chứng kiểm tra
+# Kịch bản demo và nghiệm thu
 
-## Demo khoảng 5–8 phút
+Tất cả mục Editor/runtime dưới đây là **chưa chạy**, đánh dấu sau khi quan sát trên máy có UE. Ghi engine version, commit, map, model gamepad và loại kết nối; ghi riêng PIE/Standalone/packaged.
 
-1. **Điều khiển và command (1 phút):** chỉ ra PlayerController nhận input; click hai đích liên tiếp; vòng cập nhật; đến nơi vòng tắt. WASD/stick thay click movement. Cho xem tốc độ analog trên HUD.
-2. **Target feedback (1 phút):** hover enemy A, click A ngoài tầm, hover B trong lúc tiếp cận. A có vòng đậm, B có vòng mảnh; hover lại A không có hai vòng chồng. Click sàn thay attack.
-3. **Animation/buffer (1 phút):** xem AnimBP velocity, montage Slot và HB Attack Hit; hit counter tăng tại notify. Click sàn trong swing: buffer có nhưng move ring chưa hiện. Đòn kết thúc thì command move mới chạy.
-4. **Game loop (2–4 phút):** clear dungeon, stones/threat tăng, Return xây turret, sang Defense. Chỉ ra build bị khóa, enemy đánh Gate rồi Anima, defense kill không cho loot. Có thể tua phần giải thích bằng recording sau khi test đủ năm wave; không khai đã chạy hết khi chỉ xem wave đầu.
-5. **Recovery (1 phút):** pause khi đang di chuyển, neutral/resume, đổi thiết bị. Nêu phần chưa test: console, packaged hoặc device khác.
+## Kịch bản trình bày khoảng 5–8 phút
 
-Trước buổi demo, chạy test thật và ghi commit. Nếu montage chưa được ráp, giới thiệu đúng là timed-attack prototype; không dùng hình khối để tuyên bố animation đã xong.
+1. Town: mở F2, chỉ map/GameMode/controller/pawn/Anim class thực tế. Di chuyển chậm/full stick, đổi aim; thử camera yaw 90 rồi trả 0.
+2. Dungeon: click tới vị trí, hover enemy, chọn attack; click lệnh khác giữa swing để thấy buffer chỉ xuất hiện thành lệnh sau khi đòn kết thúc.
+3. Montage: chỉ HP/hit count đổi ở HB Attack Hit, phân biệt playback và assigned. Chịu một đòn không chết trong lúc đánh để thấy đòn không bị ngắt.
+4. Sáu kỹ năng: Pulse, dodge không tốn MP, Guard, Mend khi mất HP, Bolt có tầm. Cho thấy cooldown/MP trên HUD.
+5. Greed: lấy một cache, giải thích +30 stones đổi +3 Threat. Về prep, xây turret/repair rồi bắt đầu Defense.
+6. Defense: enemy chuyển từ Gate sang Anima nếu Gate bị phá; trình bày death/respawn. Chạy đủ năm wave trong buổi kiểm tra, không cần chờ hết trong bài trình bày ngắn.
+7. Gamepad: pause/resume, rút/cắm lại, thả input về neutral rồi tiếp tục. Restart bằng Back.
 
-## Acceptance matrix
+## Checklist bắt buộc
 
-Mọi dòng dưới đây khởi tạo **Not run**. Lập kết quả riêng cho PIE, Standalone và Windows packaged; pad ghi model + wired/Bluetooth + remapping layer.
+| Nhóm | Thao tác / kết quả cần đạt |
+| --- | --- |
+| Build | Full Editor build UHT/UBT pass, mở project không missing module |
+| Movement | WASD đối nhau triệt tiêu; đường chéo không nhanh hơn; partial stick có tốc độ nhỏ hơn; yaw 0/90 vẫn đi theo camera |
+| Aim | Right stick độc lập move; thả giữ hướng cuối; đổi mouse/pad không tạo movement cũ |
+| Buffer | Nhiều click lúc swing chỉ giữ lệnh cuối; cancel/interruption xóa buffer; không hiện move destination trước khi command được nhận |
+| Melee | Notify đúng gây một hit; duplicate notify không gây hit thứ hai; target chết trước notify không crash |
+| Montage lỗi | Bỏ notify: không timed damage; gán montage không phát được: báo lỗi/hủy, không fallback hit |
+| Lifecycle | Complete/interrupted/cancel khác nhau trong diagnostics; chết/reset/unpossess không để timer hit muộn |
+| Skills | Dodge 0MP; cửa sổ miễn damage đầu; Guard giảm damage; Mend đầy HP không mất MP; Bolt ngoài tầm/tường không mất MP |
+| Cooldown | Gán cùng ability hai slot không bypass cooldown; thiếu MP/thất bại không tiêu tài nguyên; MP hồi theo thời gian |
+| Remap | HBRebind 2 Q false → Q hoạt động và tồn tại sau restart; key trùng/reserved/analog/wrong-device bị từ chối |
+| Greed | Kill sáu enemy:90/6; lấy đủ ba cache:180/15; bấm lại không nhận thêm; rời dungeon xóa cache |
+| Waves | Threat6: wave1=5, wave5=9; Threat15: wave1=8, wave5=12; timeout/clear qua break 3s; năm wave về Town |
+| Economy | Turret30, repair20; thiếu tiền không xây/sửa; socket occupied không trừ tiền; không build/repair trong Defense kể cả break |
+| Death | Dungeon chết kết thúc; Defense chết hồi sinh3s; Anima chết kết thúc, không respawn muộn |
+| Input reset | Pause lúc giữ input, resume, alt-tab, disconnect/reconnect không stuck movement/attack; gamepad-only có đường resume/restart |
+| Cleanup | Restart/đổi phase nhiều lần không nhân đôi binding, ring hoặc timer; burst fade rồi biến mất |
+| Visual | Màu dễ phân biệt, ring không chặn trace/collision, chân mesh chạm sàn, text HUD đọc được ở720p/1080p |
+| Packaging | Save map, cook, chạy Development executable ngoài Editor; lặp controls/phase/animation trên bản đóng gói |
 
-| ID | Thao tác | Expected | Status |
-| --- | --- | --- | --- |
-| B01 | Generate project và build Editor target UE5.7 | UHT/UBT hoàn tất, không lỗi | Not run |
-| W01 | Empty map + PlayerStart + HBGameMode, Play | Arena/HUD/player spawn đúng, không pawn thừa | Not run |
-| M01 | Click sàn A rồi B khi đang đi | Một vòng ở B, biến mất khi tới ngưỡng | Not run |
-| M02 | Click miss ngoài sàn | Không tạo/sửa command hiện tại | Not run |
-| M03 | Đi bằng keyboard/pad từ click move | Không cộng hai movement owner, vòng cũ tắt | Not run |
-| M04 | Stick neutral, half/full, diagonal | Dead zone không drift, analog phân biệt, magnitude <=1 | Not run |
-| M05 | Đi vào tường | Không xuyên biên; command bị kẹt kết thúc sau timeout | Not run |
-| T01 | Hover A, click A, hover B, hover A | Target/hover tách đúng, không double-ring cùng actor | Not run |
-| T02 | Enemy chết trong chase hoặc swing | Không crash, vòng biến mất, không hit target cũ | Not run |
-| A01 | Timed fallback attack | Một hit trong range, khóa rồi mở movement | Not run |
-| A02 | Montage + notify trực tiếp montage | Hit đúng notify, <=1 hit/swing | Not run |
-| A03 | Montage playback hợp lệ nhưng bỏ notify | Không timed damage thay thế; cuối montage mở lock | Not run |
-| A04 | Attack rồi click move A rồi B | Chỉ B được buffer; vòng move chỉ hiện sau unlock | Not run |
-| A05 | Interrupt/cancel/unpossess khi attack | Timer/delegate/buffer/ring cleanup, không late hit | Not run |
-| A06 | Shift+click enemy ngoài tầm | Không chase; không hit | Not run |
-| L01 | Idle/half/full move/dừng/đâm tường | AnimBP đọc velocity thật | Not run |
-| G01 | Clear 6 dungeon enemy rồi Return | 90 stones, Threat 6, HP/MP hồi | Not run |
-| G02 | Xây socket trống/đã có/không đủ tiền | Trừ đúng 30 khi thành công; fail không trừ | Not run |
-| G03 | Build click / analog khi build | Không tạo move/attack ring; chỉ confirm socket | Not run |
-| G04 | Repair Gate full/damaged/broken | Chỉ khi damaged + đủ 20; phase hợp lệ | Not run |
-| G05 | Năm wave gồm break, thử build/repair | Khóa liên tục; timer hết clear wave không cấp kill reward | Not run |
-| G06 | Gate chết rồi Anima chết | Target đổi; Anima chết game over, clear timer/enemy | Not run |
-| G07 | Player chết solo dungeon/defense | Game over / respawn 3s; không respawn sau game over | Not run |
-| G08 | Hết defense, sang cycle 2 | Reward cuối phase; Gate damage và turret giữ lại | Not run |
-| D01 | Pause, giữ input, resume, thả rồi nhấn lại | Không replay command/attack cũ; neutral gate hoạt động | Not run |
-| D02 | Alt-tab đang move/attack rồi quay lại | Reset khi focus flush, không input kẹt; ghi OS behavior | Not run |
-| D03 | Rút pad khi đang move rồi reconnect | Pause/reset; không stale input; resume bằng P/Start | Not run |
-| D04 | Chỉ dùng pad hết vòng gồm build/phase/pause | Không cần chuột; target chọn theo contract | Not run |
-| D05 | Stop PIE/restart nhiều lần | Không actor vòng/timer/delegate bị bỏ lại | Not run |
-| P01 | Package Windows Development, chạy ngoài Editor | Map/cooked assets/input/animation hoạt động | Not run |
-| C01 | Console thật | Chưa có target/SDK/device | Blocked |
+## Kiểm tra tự động
 
-## Mẫu kết quả
+`python Scripts/validate_source.py` kiểm tra cấu trúc. `python Scripts/test_rules.py` compile/chạy logic thực từ HBRuleCore, không dùng Unreal stubs. Trong Unreal có nhóm `HideInTheBox.Rules`; chạy qua Automation hoặc `Automation RunTests HideInTheBox.Rules` sau khi build.
 
-```text
-Date / tester:
-Commit / engine version / build:
-Environment (PIE/Standalone/Packaged):
-Map / GameMode / Pawn / Controller / AnimBP:
-Device / transport / remapping software:
-Test ID:
-Steps:
-Expected:
-Actual:
-Result (Pass/Fail/Blocked):
-Log / screenshot / video timestamp:
-Follow-up:
-```
-
-## Validation lúc bàn giao
-
-Đã kiểm tra tĩnh cấu trúc source/config, generated-header order, module/target naming, local Markdown links, không commit generated build artifacts. Kết quả cụ thể ghi trong `VALIDATION.md` sau khi chạy script. Không có UE installed: **build, UHT, unit tests trong engine, PIE, animation, controller hardware, cook và package đều chưa chạy**.
+Không dùng số lượng sample trong dead-zone test để suy ra gameplay coverage. Không coi screenshot/PIE pass là packaged hoặc console pass. Xem [VALIDATION.md](VALIDATION.md) để biết kết quả đã thực sự chạy.

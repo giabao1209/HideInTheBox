@@ -1,5 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "HBRuleCore.h"
 #include "HBTypes.generated.h"
 
 UENUM(BlueprintType)
@@ -22,18 +23,14 @@ enum class EHBStructure : uint8
 
 namespace HBRules
 {
-    inline FVector2D ApplyRadialDeadZone(const FVector2D& Input, float fThreshold)
+inline FVector2D ApplyRadialDeadZone(const FVector2D& Input, float fThreshold)
     {
-        const double fLength = Input.Size();
-        if (fLength <= fThreshold)
-        {
-            return FVector2D::ZeroVector;
-        }
-        return Input / fLength * FMath::Clamp((fLength - fThreshold) / (1.0 - fThreshold), 0.0, 1.0);
+        const HBRuleCore::FStick Result = HBRuleCore::DeadZone(Input.X, Input.Y, fThreshold);
+        return FVector2D(Result.fX, Result.fY);
     }
 
-    inline int32 GetWaveEnemyCount(int32 iWave, int32 iThreat)
+inline int32 GetWaveEnemyCount(int32 iWave, int32 iThreat)
     {
-        return FMath::Clamp(2 + iWave + iThreat / 3, 1, 16);
+        return HBRuleCore::WaveCount(iWave, iThreat);
     }
 }

@@ -16,6 +16,7 @@ protected:
     UPROPERTY(BlueprintReadOnly, Category="Locomotion") float fRightSpeed = 0.0f;
     UPROPERTY(BlueprintReadOnly, Category="Locomotion") bool bFalling = false;
     UPROPERTY(BlueprintReadOnly, Category="Combat") bool bAttacking = false;
+    UPROPERTY(BlueprintReadOnly, Category="Combat") bool bDodging = false;
 };
 
 UCLASS(meta=(DisplayName="HB Attack Hit"))

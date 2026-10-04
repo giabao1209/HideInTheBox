@@ -21,10 +21,16 @@ AHBCombatant::AHBCombatant()
     this->Placeholder->SetupAttachment(this->GetRootComponent());
     this->Placeholder->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     this->Placeholder->SetRelativeScale3D(FVector(0.5f, 0.5f, 1.3f));
+    this->FacingMarker = this->CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FacingMarker"));
+    this->FacingMarker->SetupAttachment(this->GetRootComponent());
+    this->FacingMarker->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    this->FacingMarker->SetRelativeLocation(FVector(38.0f, 0.0f, 25.0f));
+    this->FacingMarker->SetRelativeScale3D(FVector(0.3f, 0.12f, 0.12f));
     static ConstructorHelpers::FObjectFinder<UStaticMesh> MeshAsset(TEXT("/Engine/BasicShapes/Cube.Cube"));
     if (MeshAsset.Succeeded())
     {
         this->Placeholder->SetStaticMesh(MeshAsset.Object);
+        this->FacingMarker->SetStaticMesh(MeshAsset.Object);
     }
 }
 
@@ -35,6 +41,11 @@ void AHBCombatant::BeginPlay()
     if (this->GetMesh()->GetSkeletalMeshAsset())
     {
         this->Placeholder->SetVisibility(false);
+        this->FacingMarker->SetVisibility(false);
+    }
+    if (this->TintMaterial)
+    {
+        this->Placeholder->SetMaterial(0, this->TintMaterial);
     }
     UMaterialInstanceDynamic* Material = this->Placeholder->CreateAndSetMaterialInstanceDynamic(0);
     if (Material)
@@ -45,7 +56,7 @@ void AHBCombatant::BeginPlay()
 
 float AHBCombatant::TakeDamage(float fDamage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-    if (!this->IsAlive() || fDamage <= 0.0f)
+    if (!this->IsAlive() || !FMath::IsFinite(fDamage) || fDamage <= 0.0f)
     {
         return 0.0f;
     }
@@ -66,4 +77,15 @@ void AHBCombatant::RestoreHealth()
 void AHBCombatant::OnDeath()
 {
     this->Destroy();
+}
+
+float AHBCombatant::Heal(float fAmount)
+{
+    if (!this->IsAlive() || !FMath::IsFinite(fAmount) || fAmount <= 0.0f)
+    {
+        return 0.0f;
+    }
+    const float fRestored = FMath::Min(fAmount, this->fMaxHealth - this->fHealth);
+    this->fHealth += fRestored;
+    return fRestored;
 }

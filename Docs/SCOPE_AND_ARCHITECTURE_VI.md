@@ -1,69 +1,27 @@
-# Phạm vi và kiến trúc prototype
+# Phạm vi và kiến trúc
 
-## Nguồn và thứ tự ưu tiên
+Demo cá nhân độc lập, namespace HB; không tích hợp source Vault. Mục tiêu là trình bày luồng Character → Controller → Input → Animation → Feedback cùng một vòng gameplay có quyết định greed. Ưu tiên section GDD sáu slot tự gán, không khóa class.
 
-Dựa trên GDD Project Vaultbreaker, Unreal Developer Technical Guide, PC/Gamepad/Console Test Plan, Player Feedback Roadmap và Move Destination Indicator Task do người dùng cung cấp. Bản này là repo mới, không phải patch lên checkout Vault `4a0a0b0` hoặc các nhánh đồng nghiệp. Không đưa các tài liệu nội bộ gốc lên repo; chỉ ghi quyết định implementation cần thiết.
-
-GDD phần Character Building nói không có class cố định; vài phần sau vẫn nhắc “four classes”. Prototype theo thiết kế mới: một player với basic attack/Pulse, chưa đóng khung hệ class. GDD còn nhiều giá trị pending, nên tất cả damage/range/cost/duration trong code là tuning demo.
-
-## Chia trách nhiệm
-
-| Lớp | Sở hữu | Không làm |
+| Yêu cầu | Phần triển khai | Giới hạn |
 | --- | --- | --- |
-| HBPlayerController | Mapping/action, cursor trace, input family, stick, pause, lifecycle input | Không giữ command combat riêng |
-| HBPlayerCharacter | Command, target, một buffer, movement, attack lock và hit guard | Không tự vẽ HUD |
-| HBFeedbackComponent | Ba actor vòng; nhận snapshot command/destination/target | Không sửa destination/velocity/ability |
-| HBIndicator | Instanced mesh presentation, tint, thickness | Không collision, không gameplay tick |
-| HBAnimInstance / Notify | Velocity cho locomotion; chuyển notify tới đòn đang chạy | Không tự chọn enemy |
-| HBGameMode | Phase, tài nguyên, registry enemy, wave và spawn arena | Không phải multiplayer authority design đầy đủ |
-| HBEnemyCharacter | Direct chase, player proximity, Gate → Anima | Không weighted A* |
-| HBStructure | HP Gate/Anima, turret target/timer | Không tạo economy ngoài GameMode |
+| Town/Dungeon/Return/Defense | HBGameMode, năm wave, Gate/Anima | Một arena tái sử dụng, không load nhiều map |
+| Greed | Ba cache +30 stones/+3 threat mỗi cache | Không procedural loot; kill cũng tăng threat |
+| Sáu action | HBLoadout, DataAsset, cooldown theo ability | Utility bindings cố định, chưa có menu remap |
+| Dodge | 0 MP, movement, miễn damage 0.15s đầu | Animation do Editor gắn |
+| Combat | Basic melee, Pulse AoE, Guard, Mend, Bolt | Bolt là hit trực tiếp có kiểm tra tầm/visibility, chưa có projectile |
+| Input | Enhanced Input, radial dead zone, camera relative | Click/enemy direct steering; không tìm đường vòng |
+| Animation | HBAnimInstance, montage notify, lifecycle | Asset/skeleton/AnimBP do Editor gắn |
+| Feedback | Rings, hit bursts, HUD, runtime identity | Arena phẳng; không decal terrain/shader toon hoàn chỉnh |
+| Persistence | Lưu binding sáu slot hai device families | Không lưu run hoặc runtime loadout |
 
-Enemy registry dùng weak references, unregister trong EndPlay. Pulse/cleanup lấy snapshot vì damage có thể destroy và sửa registry. Turret chọn target mỗi 0.7 giây khi cần, không world search từng frame. Enemy steering chạy mỗi frame vì CharacterMovement tiêu thụ movement input mỗi frame. Timer và device delegate có cleanup.
+## Ownership
 
-## Command và input contract
+- Controller sở hữu mapping và binding handles, đọc input, chọn target, chuyển thành yêu cầu. Chỉ gỡ mapping/binding do nó tạo.
+- Player Character sở hữu command hiện hành, một buffered command, attack lock, dodge và guard. Nonlethal hit không cancel attack. Death, unpossess, phase reset và explicit cancel dọn trạng thái.
+- Loadout component sở hữu slot, MP, cooldown; kiểm tra điều kiện rồi chỉ trừ MP/commit cooldown khi hành động được nhận. Hai slot cùng ability dùng chung cooldown.
+- Animation cung cấp pose và thời điểm melee hit qua notify. Gameplay không dựa vào tên animation node. Montage assigned nhưng phát lỗi bị hủy; fallback timer chỉ dùng nếu chưa gán montage.
+- Feedback component chỉ trình bày trạng thái đã được nhận, không tự sở hữu gameplay command. Rings không collision; transient bursts tự hết lifetime.
+- GameMode sở hữu phase/economy/wave/objectives. Enemy registry dùng weak pointer; snapshot khi AoE có thể làm enemy bị hủy. Timer và device delegate được gỡ khi EndPlay.
+- HBRuleCore là phần C++ độc lập thực sự dùng bởi runtime: dead zone, wave count, ability budget, greed ledger. Tests biên dịch header này trực tiếp.
 
-- None, Move, Attack là state chính. Đánh trong tầm bật `bAttacking`, khóa movement và facing tới hết swing.
-- Click trong attack thay thế một buffered command. Indicator vẫn phản ánh command đang active; không hiển thị ý định chưa chạy.
-- Direct movement không đi vào discrete buffer. Giữ stick lúc unlock sẽ tiếp tục direct movement và có thể thay thế buffered move. Đây là lựa chọn demo cần nói rõ.
-- Chuột click sàn được chấp nhận từ trace `WalkableFloor`; click miss không tự đổi command. Enemy trace là Visibility trước floor trace.
-- Arrival 30 cm; direct steering bị đứng yên 1.5 giây thì bỏ command. Không có tìm đường vòng hoặc xác minh reachability.
-- Gamepad attack chọn enemy gần nhất trong 750 cm; khi right-stick hoạt động, lọc cone theo dot >= 0.4. Không right-stick thì chọn nearest. Đây là quy tắc prototype vì GDD chưa chốt targeting gamepad.
-- Camera yaw cố định 0; screen up tương ứng +X, right +Y. Nếu xoay camera phải đổi input basis, không chỉ đổi boom rotation.
-- Pause/focus flush/phase change xóa input tạm và command; resume yêu cầu neutral. OS/controller disconnect behavior phải được test trên thiết bị thật. Disconnect callback pause khi đang dùng pad.
-- Chưa có asset IMC editable, remap UI hay persistent user bindings. Actions/IMC được tạo runtime bởi controller.
-
-## Đối chiếu GDD
-
-| Hạng mục | Prototype |
-| --- | --- |
-| Town → Dungeon → Return → Defense | Có state loop; cùng arena, chưa map travel |
-| Loot hỗ trợ defense | Dungeon kill +15 stones; turret -30; Gate repair -20 |
-| Greed/retaliation | Mỗi kill +1 Threat; wave = clamp(2 + wave + threat/3, 1, 16); chưa có optional greed choice |
-| Năm wave, timer clear, break | Có; 40s/wave, 3s break là tuning demo |
-| Defense không build/repair | Khóa cả break |
-| Gate trước, Anima sau | Có objective targeting; cấu trúc không chặn đường |
-| Player chết dungeon solo | Game over; không snapshot |
-| Player chết defense | Respawn 3s tạm, chưa gear penalty vì GDD còn pending |
-| Dungeon loot vs defense loot | Defense kill không cho tiền; reward cuối phase được credit trực tiếp thay chest |
-| Animation | Native data/notify bridge; assets cần Editor |
-| Destination/hover/attack feedback | Có mesh rings; chưa fade, chưa support slope/capsule khác |
-| GAS, ability cards, stats, race, inventory, gear | Chưa làm |
-| Barricade, siege, saboteur, boss, companion | Chưa làm |
-| Save/load, procgen, campaign/endless hoàn chỉnh | Chưa làm |
-| Six slots/rebinding và console | Chưa làm / chưa kiểm tra |
-
-Prototype tập trung chứng minh đường input → command → movement/attack → feedback, kèm vòng game có thể trình diễn. Không đáp ứng toàn bộ GDD.
-
-## Khi đem tính năng về Vault
-
-Bản task gốc yêu cầu subclass mỏng của AVaultCharacter và component hiển thị, không viết lại navigation/combat. Trong repo độc lập chưa có class đó. Khi tích hợp: port component/ring, đọc command của đúng branch đang dùng; giữ nguyên command owner của branch đó. Nếu controller mới sở hữu command, adapter đọc controller. Không copy toàn bộ HBPlayerCharacter/GameMode vào production để tránh tạo hai nguồn state.
-
-## API tham khảo
-
-Đã đối chiếu API công khai của Epic; trang có thể mặc định phiên bản mới hơn target. Chưa có source engine 5.7 tại máy tạo code nên UHT/UBT vẫn là gate bắt buộc.
-
-- [Enhanced Input](https://dev.epicgames.com/documentation/en-us/unreal-engine/enhanced-input-in-unreal-engine)
-- [PlayerController](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/APlayerController)
-- [Input device mapper](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/ApplicationCore/IPlatformInputDeviceMapper)
-- [AnimNotify Notify](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/Animation/AnimNotifies/UAnimNotify/Notify/2?application_version=5.5)
+Không dùng GAS, NavMesh, replication hoặc plugin runtime ngoài Enhanced Input. Không tuyên bố hoàn tất toàn bộ GDD. Balance và hình thức vẫn cần playtest/Editor review; không có console SDK hoặc platform được chỉ định để xác nhận console.

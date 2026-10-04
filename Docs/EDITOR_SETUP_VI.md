@@ -1,76 +1,124 @@
-# Checklist Unreal Editor cho ngày mai
+# Lắp demo trong Unreal Editor
 
-Mục tiêu đầu tiên là chạy arena bằng native classes, sau đó mới thêm mesh/animation. Target được viết cho UE 5.7 theo tài liệu Vault đã cung cấp; chưa có build xác nhận. Không cần custom engine, Wwise, GAS hay asset từ repo công ty cho bản độc lập này.
+Đây là demo cá nhân độc lập, target **UE 5.7, C++, Windows single-player**. Code gameplay đã có; bạn tạo map, Blueprint, material và animation bằng Editor. Không cần nối vào dự án Vault. Môi trường chuẩn bị source không có Unreal: UHT/UBT, PIE và packaging vẫn cần xác nhận trên máy bạn. Không có asset `.uasset`/`.umap` giả trong repo.
 
-## 1. Build source trước
+## 1. Lấy code và build
 
-- Cài UE 5.7 và C++ toolchain mà bản engine của bạn yêu cầu. Dùng engine đã có nếu đúng 5.7; nếu dùng source build, chọn lại Engine Version để `.uproject` trỏ đúng engine.
-- Clone repo, checkout branch prototype, mở `HideInTheBox.uproject`; cho phép generate project files/build module. Hoặc dùng `Scripts/Build-Editor.ps1` với đường dẫn engine của bạn.
-- Target là `HideInTheBoxEditor`, configuration Development Editor, platform Win64. Đóng Editor khi build lần đầu và khi đổi reflected headers; tránh dùng Live Coding làm bằng chứng UHT pass.
-- Nếu báo lỗi compile, giữ nguyên log lỗi đầu tiên, file và dòng. Không đánh dấu checklist build pass chỉ vì project files generate thành công.
+Checkout `feature/vaultbreaker-demo`. Cài UE 5.7 cùng C++ toolchain của engine. Đóng Editor, chạy từ thư mục repo:
 
-## 2. Tạo map tối thiểu
+```powershell
+powershell -File Scripts/Build-Editor.ps1 -EngineRoot 'C:\Program Files\Epic Games\UE_5.7'
+```
 
-1. File → New Level → **Empty Level**. Không dùng template map có floor/lighting sẵn vì code tự tạo arena.
-2. Save thành `Content/Maps/DemoArena.umap`, tương ứng `/Game/Maps/DemoArena`.
-3. Thêm **PlayerStart** ở `X=-400, Y=0, Z=100`.
-4. World Settings → GameMode Override → **HBGameMode**.
-5. Project Settings → Maps & Modes: Editor Startup Map và Game Default Map cùng là DemoArena; Default GameMode là HBGameMode.
-6. Save All. Nhấn Play; click viewport để có focus. Nhân vật mặc định là hình hộp xanh, enemy là hộp đỏ nếu material engine hỗ trợ parameter Color.
+Hoặc generate project files rồi build target `HideInTheBoxEditor`, Development Editor, Win64. Mở `HideInTheBox.uproject` sau khi build thành công. Nếu dùng source engine, chọn lại Engine Version cho project. Generate project files thành công không đồng nghĩa compile thành công. Giữ log lỗi đầu tiên nếu build bị chặn; không dùng Live Coding để xác nhận thay đổi reflected header.
 
-Kết quả cần thấy: sàn chữ nhật và tường biên, HUD, Player, Gate và Anima. Nếu thấy DefaultPawn bay, kiểm tra GameMode override và Default Pawn Class. Đừng đặt thêm player pawn Auto Possess vào level.
+## 2. Chạy bản hình khối trước
 
-Native GameMode tạo arena khi StartPlay, vì vậy viewport trước Play có thể gần như trống. Đây là bình thường. Sau khi tạo map, commit `.umap` và thay đổi Maps & Modes cùng các asset mới; repo không bỏ qua Content.
+1. New Level → Empty Level. Save `/Game/Maps/DemoArena`.
+2. Thêm PlayerStart: **X=-400, Y=0, Z=100**. Không thêm pawn Auto Possess khác.
+3. World Settings → GameMode Override = **HBGameMode**.
+4. Project Settings → Maps & Modes: Editor Startup Map và Game Default Map = DemoArena.
+5. Save All → Play → click viewport để lấy focus.
 
-## 3. Chạy một vòng gameplay với hình khối
+Code tự sinh sàn, tường biên, đèn, Gate, Anima, enemy và HUD lúc Play. Viewport trước Play gần như trống là bình thường; đừng thêm sàn chồng lên sàn runtime. Enter vào Dungeon, LMB enemy để tiến tới đánh, RMB Pulse. Kiểm tra trước khi thay asset.
 
-- Enter vào dungeon; đi tới nhóm enemy, LMB enemy để đánh. Một press = một đòn; nhấn lại hoặc buffer đòn kế. RMB dùng Pulse ở bán kính 350.
-- Dungeon enemy chỉ bắt đầu đuổi trong khoảng 700; kéo từng nhóm để thử input trước.
-- Hạ sáu enemy: dự kiến có 90 stones, Threat 6. Enter về Return/prep; nhân vật hồi HP/MP.
-- B bật build, Tab chọn socket, LMB xây (30 stones). Chọn ba socket khác nhau để đặt ba turret. B thoát build.
-- Enter thủ năm wave. Enemy ưu tiên Gate, đánh player nếu ở gần; Gate hết HP chuyển sang Anima. Turret chỉ bắn trong Defense.
-- Wave hết enemy hoặc hết 40 giây thì qua break ba giây; không build/repair trong break. Hết wave 5 nhận reward trực tiếp rồi về Town.
-- P pause; F5 restart level đã lưu. Nếu chưa save map, restart không phải đường kiểm tra hợp lệ.
+## 3. Tạo các asset để lắp
 
-Đây là kết quả mong đợi để test, chưa phải báo cáo chạy thành công. Balance chưa được playtest.
+Tạo thư mục `/Game/Demo/Blueprints`, `/Game/Demo/Materials`, `/Game/Demo/Animation`, `/Game/Demo/Data`.
 
-## 4. Gắn nhân vật và locomotion
+| Asset | Loại / parent | Gán ở đâu |
+| --- | --- | --- |
+| BP_DemoPlayer | Blueprint → HBPlayerCharacter | BP_DemoGameMode → Default Pawn Class |
+| BP_DemoEnemy | Blueprint → HBEnemyCharacter | BP_DemoGameMode → Enemy Class |
+| BP_DemoController | Blueprint → HBPlayerController | BP_DemoGameMode → Player Controller Class |
+| BP_DemoGameMode | Blueprint → HBGameMode | World Settings và Project Settings → Default GameMode |
+| DA_DemoLoadout | Miscellaneous → Data Asset → HBLoadoutData | BP_DemoPlayer → Loadout component → Definition |
 
-1. Import hoặc thêm skeletal mesh và animation mà bạn có quyền dùng, cùng skeleton tương thích. Repo không kèm mannequin hoặc asset thương mại.
-2. Tạo Blueprint subclass của **HBPlayerCharacter**, đặt `BP_DemoPlayer`.
-3. Ở Mesh: gán skeletal mesh, sửa relative location/rotation cho chân nằm trên sàn. Với mannequin thông dụng thường cần Z khoảng -88 và yaw khoảng -90; quan sát skeleton thực tế trước khi chốt.
-4. Tạo Animation Blueprint từ cùng skeleton, Parent Class = **HBAnimInstance**. Nếu wizard không cho chọn, mở Class Settings → Parent Class.
-5. AnimGraph: State Machine Idle/Move hoặc Blend Space; đọc `fSpeed` (cm/s) từ parent. Input của locomotion là velocity thực, không phải key held. MaxWalkSpeed hiện 450; Blend Space từ 0 tới 450 là mốc thử.
-6. Thêm **Slot DefaultSlot** giữa locomotion và Output Pose để montage có đường output.
-7. Gán Anim Class này cho Mesh trong BP_DemoPlayer.
-8. Tạo Blueprint subclass **HBGameMode**, đặt `BP_DemoGameMode`; Default Pawn Class = BP_DemoPlayer. Giữ Controller/HUD là các lớp HB mặc định. Đổi World Settings và Default GameMode sang BP_DemoGameMode.
+Giữ HUD Class = **HBHUD**. DA mặc định có sáu ability và sáu slot. Chưa cần đổi số liệu. Nếu không gán Definition, code dùng cấu hình native mặc định. Chọn component Loadout/Feedback trong cây Components để thấy property tương ứng. Compile/Save từng BP.
 
-Placeholder được tự ẩn trong BeginPlay nếu Skeletal Mesh đã được gán. Không cần tự xóa component. Thử idle, đi chậm/full-stick, dừng, đâm tường: đứng kẹt thì tốc độ animation phải giảm theo velocity.
+## 4. Material và ánh sáng: ưu tiên dễ làm, rõ hình
 
-## 5. Nối một đòn đánh qua montage và notify
+Tạo **M_DemoTint**: Surface, Opaque, Default Lit. Vector Parameter tên chính xác `Color` → Base Color; Constant 0.65 → Roughness. Có thể nối `Color × 0.1` → Emissive Color. Tạo hai Material Instance từ nó:
 
-1. Tạo montage cùng skeleton từ animation đánh tại chỗ. Dùng Slot **DefaultGroup.DefaultSlot**.
-2. Trong AnimBP đặt Root Motion Mode **Ignore Root Motion** cho demo này. Đừng dùng root-motion displacement để tránh tranh quyền với direct movement.
-3. Đặt **HB Attack Hit** notify **trực tiếp trên notify track của montage**, đúng frame tiếp xúc. Không chỉ đặt notify trong animation sequence nguồn: implementation kiểm tra asset montage đang đánh.
-4. Gán montage vào `Attack Montage` trên BP_DemoPlayer (Class Defaults → Combat).
-5. Chạy: HUD có “MONTAGE ASSIGNED”; hit counter và HP enemy phải đổi tại notify. Dòng này chỉ chứng minh property được gán, chưa chứng minh montage playback hoặc notify đúng.
-6. Thử bỏ notify: với montage chạy được, không được có damage tự xuất hiện bằng timer. Nếu montage không phát được, code chuyển sang timed fallback; kiểm tra mesh, skeleton, Anim Class và Slot.
-7. Thử spam/duplicate notify: tối đa một melee hit mỗi swing. Thử enemy chết trước notify: không dereference target đã hủy.
-8. Click sàn lúc đang đánh: buffer hiện trên HUD; indicator move chỉ xuất hiện sau khi montage kết thúc và command được nhận.
+- **MI_Floor**: Color RGB tuyến tính khoảng (0.025, 0.04, 0.065), nền xanh đen.
+- **MI_Wall**: Color (0.06, 0.08, 0.12), sáng hơn nền một chút.
 
-Đòn đánh bị hủy bởi cancel/unpossess/phase reset: xóa buffer và timer. Montage interrupted tự xóa buffered command. Timeout chỉ giải phóng lock, không gây timed damage trong montage mode.
+Tạo **M_DemoRing**: Surface, Translucent, Unlit, Two Sided. Vector Parameter `Color` × Scalar Parameter `Glow` (2) → Emissive Color; Scalar Parameter `Opacity` (1) → Opacity. Bật Usage → Used with Instanced Static Meshes nếu engine chưa tự bật. Tên Color/Opacity phải đúng để runtime đổi màu và fade.
 
-## 6. Visual feedback
+| Nơi cấu hình | Property | Asset |
+| --- | --- | --- |
+| BP_DemoGameMode | Floor Material / Wall Material | MI_Floor / MI_Wall |
+| BP_DemoGameMode | Tint Material | M_DemoTint |
+| BP_DemoPlayer và BP_DemoEnemy | Appearance → Tint Material | M_DemoTint |
+| BP_DemoPlayer → Feedback component | Ring Material | M_DemoRing |
+| BP_DemoController | Feedback → Ring Material | M_DemoRing |
 
-Vòng có sẵn bằng 32 cube instances, không phải DrawDebug. Bề dày và màu phân biệt hover/command. Material mặc định lấy từ Engine BasicShapes; kiểm tra màu và ánh sáng trên bản engine của bạn. Các vòng vẫn có hình dạng nếu Color parameter không có hiệu lực.
+Native code đã đặt đèn xanh phía Town, đèn ấm phía Dungeon; core hình cầu, turret hình trụ, cache màu vàng. Vòng destination/hover/target và burst hit có màu riêng. M_DemoTint dành cho hình khối; khi gắn skeletal mesh, giữ material riêng của model.
 
-Phiên bản này chưa có opacity fade hoặc decal bám mặt dốc. Arena phẳng z=0 và capsule enemy nửa cao 88 được dùng để đặt vòng dưới chân. Khi thay capsule/terrain, chỉnh adapter `ShowActorRing()` hoặc trace xuống sàn trước khi port.
+Có thể thêm Post Process Volume, bật Infinite Extent, Bloom vừa phải (bắt đầu 0.3), giữ exposure ổn định. Project đã tắt auto exposure và motion blur. Dùng cửa sổ 1280×720 trở lên để đọc HUD; thử 1920×1080 khi quay demo. Ưu tiên silhouette, tương phản và animation đúng trước hiệu ứng nặng. Hình thức cuối cùng cần bạn xem trong PIE vì chưa có render review từ engine.
 
-## 7. Đóng gói Windows
+## 5. Gắn mesh và locomotion
 
-- Save All; đặt startup maps trước khi cook. Build Development trước.
-- Project Settings → Packaging: bảo đảm DemoArena được cook; config hiện dùng Cook All để giảm rủi ro thiếu asset trong demo nhỏ.
-- Platforms → Windows → Package Project. Chạy executable ngoài Editor.
-- Test lại chuột và gamepad thật, ghi model/connection/Steam Input, commit, engine version và log. Không coi PIE pass là packaged pass.
+1. Import mesh cùng animation bạn có quyền dùng, cùng skeleton tương thích.
+2. BP_DemoPlayer → Mesh: gán Skeletal Mesh, chỉnh relative transform để chân trên sàn. Mannequin thường thử Z=-88, yaw=-90; kiểm tra model thực tế.
+3. Tạo AnimBP cùng skeleton, Parent Class = **HBAnimInstance** (Class Settings nếu cần).
+4. AnimGraph: locomotion Blend Space/State Machine → **Slot DefaultGroup.DefaultSlot** → Output Pose.
+5. Parent cung cấp `fSpeed`, `fForwardSpeed`, `fRightSpeed`, `bFalling`, `bAttacking`, `bDodging`. Speed lấy từ velocity thực. Dải đi bộ mặc định 0–450 cm/s. Có thể dùng forward/right cho strafe độc lập hướng aim.
+6. Gán Anim Class vào Mesh. Placeholder và mũi chỉ hướng hình khối tự ẩn khi có skeletal mesh.
+7. Nếu thêm animation dodge, dùng bDodging trong state machine; gameplay dodge đã có dù chưa gắn animation. Không thêm damage/timer gameplay vào AnimBP.
 
-Sau khi build được, có thể chạy automation từ Session Frontend → Automation → `HideInTheBox.Rules`. Hoặc Output Log: `Automation RunTests HideInTheBox.Rules`. Đây là unit test cho rule thuần, không test asset wiring/gameplay.
+Demo điều khiển displacement bằng CharacterMovement; đặt Root Motion Mode = **Ignore Root Motion**. Enemy có thể giữ hình khối ở lần demo đầu. Nếu thay enemy mesh, bạn tự tạo AnimBP phù hợp; HBAnimInstance hiện đọc player.
+
+## 6. Montage và hit notify
+
+1. Tạo attack montage cùng skeleton, đòn đánh tại chỗ; slot **DefaultGroup.DefaultSlot**.
+2. Đặt notify **HB Attack Hit trực tiếp trên notify track của montage**, đúng frame chạm mục tiêu. Chỉ đặt trong sequence nguồn không đáp ứng kiểm tra asset hiện tại.
+3. BP_DemoPlayer → Combat → Attack Montage = montage vừa tạo.
+4. Play, F2 mở diagnostics. Kiểm tra playback, outcome, hit count và HP enemy.
+
+**Không gán montage**: timed fallback để test hình khối. **Đã gán nhưng playback lỗi**: hủy swing, báo lỗi; không âm thầm gây damage bằng timer. **Montage phát nhưng thiếu notify**: không damage, outcome ghi thiếu hit. Duplicate notify tối đa một hit/swing. Watchdog chỉ mở lock, không gây hit.
+
+Click lệnh mới giữa swing: giữ một buffer, lệnh sau thay lệnh trước; chỉ bắt đầu khi đòn hoàn tất. Interrupt/cancel/death/reset xóa buffer. Damage không gây chết không tự ngắt đòn. Kiểm tra cả complete, interrupted và cancel; không dùng mỗi dòng “assigned” làm bằng chứng montage hoạt động.
+
+## 7. Điều khiển và thay slot
+
+| Chức năng | Keyboard / mouse | Gamepad kiểu Xbox |
+| --- | --- | --- |
+| Move | LMB sàn (slot 0 đang Basic), WASD | Left stick |
+| Aim | Cursor | Right stick; thả giữ hướng cuối |
+| Slot 0: Basic / confirm build | LMB | A |
+| Slot 1: Pulse | RMB | B |
+| Slot 2: Dodge | 1 | X |
+| Slot 3: Guard | 2 | Y |
+| Slot 4: Mend | 3 | LB |
+| Slot 5: Bolt | 4 | RB |
+| Đánh tại chỗ | Shift + click enemy | Chưa có utility tương đương |
+| Chuyển phase | Enter | D-pad Up |
+| Build mode | B | D-pad Down |
+| Chọn socket | Tab | D-pad Right |
+| Repair Gate | R | D-pad Left |
+| Lấy cache gần | E | L3 |
+| Cancel / thoát build | Space | R3 |
+| Pause / resume | P | Start |
+| Restart map | F5 | Back |
+| Diagnostics | F2 | Left Trigger |
+
+Sáu slot remap được; utility giữ cố định. Console lệnh dùng **index từ 0**:
+
+```text
+HBRebind 2 Q false
+HBAssign 2 2
+HBCameraYaw 90
+```
+
+Lệnh đầu chuyển phím slot 2 sang Q và lưu binding. Lệnh hai gán ability Dodge cho slot 2; ability index: 0 Basic, 1 Pulse, 2 Dodge, 3 Guard, 4 Mend, 5 Bolt. HBAssign chỉ đổi runtime; muốn mặc định lâu dài chỉnh Initial Slots trong DA_DemoLoadout. Camera yaw để kiểm tra movement tương đối camera; muốn mặc định chỉnh CameraBoom trong BP.
+
+API Blueprint `RebindSlotKey`, `SaveBindings`, `AssignAbilityToSlot` có sẵn nếu muốn tự làm menu. Không có menu remap hoàn chỉnh trong bản này. Remap từ Blueprint cần gọi SaveBindings để lưu; lệnh console đã gọi sẵn. Duplicate/reserved/analog/wrong-device key bị từ chối. Save binding ở slot `HideInTheBox_Input_v1`; không phải save tiến trình run.
+
+## 8. Vòng chơi và build bản demo
+
+Hạ sáu enemy được **90 stones, Threat 6**. Ba cache tùy chọn ở phía Dungeon, đứng trong 180 cm rồi E/L3: mỗi cache **+30 stones, +3 Threat**, một lần duy nhất. Lấy hết thành **180 stones, Threat 15**. Enter về prep khi bạn muốn; không bắt buộc lấy cache.
+
+B/D-pad Down bật build; Tab/D-pad Right chọn socket; LMB/A xây turret giá 30. Repair Gate giá 20. Enter bắt đầu Defense năm wave; không build/repair khi wave hoặc break đang diễn ra. Mỗi wave tối đa 40 giây, break 3 giây. Gate mất thì enemy chuyển sang Anima; Anima mất kết thúc run. Player chết trong Defense hồi sinh sau 3 giây; chết Dungeon kết thúc run. Sau wave 5 nhận thưởng, về Town.
+
+Save All. Packaging: thêm DemoArena vào map cook; config đã bật Cook All cho demo nhỏ. Package Windows **Development** trước, chạy executable ngoài Editor, thử cả chuột và gamepad. Commit Content assets, map và Config đã chỉnh. Dùng checklist [DEMO_AND_TESTS_VI.md](DEMO_AND_TESTS_VI.md) để xác nhận. PIE pass không thay thế packaged pass.
