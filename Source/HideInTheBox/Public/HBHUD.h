@@ -9,10 +9,11 @@ class HIDEINTHEBOX_API AHBHUD : public AHUD
     GENERATED_BODY()
 public:
     virtual void DrawHUD() override;
-    void ToggleDiagnostics() { this->bShowDiagnostics = !this->bShowDiagnostics; }
+    void ToggleDiagnostics();
 protected:
     UPROPERTY(EditDefaultsOnly, Category="Presentation") bool bShowDiagnostics = false;
 private:
+    int32 iDebugPage = 0;
     void Label(const FString& Text, float fX, float fY, const FLinearColor& Color, float fScale = 1.0f);
     void Panel(float fX, float fY, float fWidth, float fHeight, const FLinearColor& Accent);
 };

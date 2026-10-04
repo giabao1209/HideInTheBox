@@ -3,6 +3,7 @@
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
 #include "InputCoreTypes.h"
+#include "TimerManager.h"
 #include "GenericPlatform/GenericPlatformInputDeviceMapper.h"
 #include "HBPlayerController.generated.h"
 class UInputAction;
@@ -26,6 +27,13 @@ public:
     UFUNCTION(BlueprintCallable, Category="Input") bool RebindSlotKey(int32 iSlot, FKey NewKey, bool bForGamepad);
     UFUNCTION(BlueprintCallable, Category="Input") bool SaveBindings();
     UFUNCTION(BlueprintPure, Category="Input") FKey GetSlotKey(int32 iSlot, bool bForGamepad) const;
+    UFUNCTION(Exec) void HBDebug();
+    UFUNCTION(Exec) void HBDebugClear();
+    UFUNCTION(Exec) void HBDebugFreeze();
+    UFUNCTION(Exec) void HBDebugFilter(FName Category);
+    UFUNCTION(Exec) void HBDebugDump();
+    UFUNCTION(Exec) void HBDebugCheck();
+    UFUNCTION(Exec) void HBDebugReset();
     UFUNCTION(Exec) void HBRebind(int32 SlotIndex, FName KeyName, bool bForGamepad);
     UFUNCTION(Exec) void HBAssign(int32 SlotIndex, int32 AbilityIndex);
     UFUNCTION(Exec) void HBCameraYaw(float Yaw);
@@ -60,6 +68,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<AHBIndicator> BuildPreview;
     TWeakObjectPtr<UEnhancedInputComponent> BoundInput;
     TArray<uint32> BindingHandles;
+    FTimerHandle DebugCheckTimer;
     FDelegateHandle ConnectionHandle;
     FVector2D MoveInput = FVector2D::ZeroVector;
     FVector2D KeyboardInput = FVector2D::ZeroVector;

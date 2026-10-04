@@ -1,4 +1,5 @@
 #include "HBPlayerController.h"
+#include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
 #include "HBEnemyCharacter.h"
 #include "HBGameMode.h"
@@ -85,7 +86,7 @@ void AHBPlayerController::SetupInputComponent()
         {
             UInputAction* Action = NewObject<UInputAction>(this);
             Action->ValueType = EInputActionValueType::Boolean;
-            Action->bTriggerWhenPaused = iIndex == static_cast<int32>(HBInput::EUtility::EU_Pause);
+            Action->bTriggerWhenPaused = iIndex == static_cast<int32>(HBInput::EUtility::EU_Pause) || iIndex == static_cast<int32>(HBInput::EUtility::EU_Diagnostics);
             this->UtilityActions.Add(Action);
             this->Mapping->MapKey(Action, bPad ? HBInput::GamepadUtilities[iIndex] : HBInput::KeyboardUtilities[iIndex]);
             this->BindingHandles.Add(Enhanced->BindAction(Action, ETriggerEvent::Started, this, &AHBPlayerController::HandleUtility, iIndex, bPad).GetHandle());
@@ -142,6 +143,9 @@ void AHBPlayerController::SetupInputComponent()
 void AHBPlayerController::BeginPlay()
 {
     Super::BeginPlay();
+#if !UE_BUILD_SHIPPING
+    this->GetWorldTimerManager().SetTimer(this->DebugCheckTimer, this, &AHBPlayerController::HBDebugCheck, 0.2f, false);
+#endif
     this->ConnectionHandle = IPlatformInputDeviceMapper::Get().GetOnInputDeviceConnectionChange().AddUObject(this, &AHBPlayerController::OnDeviceConnectionChanged);
     FInputModeGameAndUI Mode;
     Mode.SetHideCursorDuringCapture(false);
@@ -198,6 +202,7 @@ void AHBPlayerController::HandleAim(const FInputActionValue& Value)
 
 void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot, bool bFromGamepad)
 {
+    UHBDebugSubsystem::Record(this, TEXT("Input"), FString::Printf(TEXT("Slot %d from %s paused=%d neutralWait=%d"), iSlot, bFromGamepad ? TEXT("Gamepad") : TEXT("Mouse/KB"), this->IsPaused(), this->bAwaitNeutral));
     if (this->IsPaused() || this->bAwaitNeutral)
     {
         return;
@@ -262,6 +267,13 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
 void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iAction, bool bFromGamepad)
 {
     const HBInput::EUtility Action = static_cast<HBInput::EUtility>(iAction);
+    if (Action == HBInput::EUtility::EU_Diagnostics)
+    {
+        this->HBDebug();
+        return;
+    }
+    const TCHAR* UtilityNames[] = { TEXT("Advance"), TEXT("Build"), TEXT("Socket"), TEXT("Repair"), TEXT("Cancel"), TEXT("Pause"), TEXT("Restart"), TEXT("Interact"), TEXT("Diagnostics") };
+    UHBDebugSubsystem::Record(this, TEXT("Input"), FString::Printf(TEXT("Utility %s from %s"), iAction >= 0 && iAction < 9 ? UtilityNames[iAction] : TEXT("Unknown"), bFromGamepad ? TEXT("Gamepad") : TEXT("Mouse/KB")));
     if (Action == HBInput::EUtility::EU_Pause)
     {
         const bool bPaused = this->IsPaused();
@@ -296,15 +308,6 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         case HBInput::EUtility::EU_Cycle: Mode->CycleBuildSocket(); break;
         case HBInput::EUtility::EU_Repair: Mode->RepairGate(); break;
         case HBInput::EUtility::EU_Interact: Mode->ClaimNearbyGreed(); break;
-        case HBInput::EUtility::EU_Diagnostics:
-        {
-            AHBHUD* DemoHUD = Cast<AHBHUD>(this->GetHUD());
-            if (DemoHUD)
-            {
-                DemoHUD->ToggleDiagnostics();
-            }
-            break;
-        }
         case HBInput::EUtility::EU_Cancel: Player->SetBuildMode(false); this->ResetTransientInput(); break;
         default: break;
     }
@@ -401,6 +404,7 @@ void AHBPlayerController::PlayerTick(float fDeltaSeconds)
 
 void AHBPlayerController::ResetTransientInput()
 {
+    UHBDebugSubsystem::Record(this, TEXT("Input"), TEXT("Transient input reset; waiting for neutral"));
     this->MoveInput = FVector2D::ZeroVector;
     this->KeyboardInput = FVector2D::ZeroVector;
     this->AimInput = FVector2D::ZeroVector;
@@ -592,6 +596,7 @@ void AHBPlayerController::HBCameraYaw(float Yaw)
 
 void AHBPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    this->GetWorldTimerManager().ClearTimer(this->DebugCheckTimer);
     IPlatformInputDeviceMapper::Get().GetOnInputDeviceConnectionChange().Remove(this->ConnectionHandle);
     this->CleanupMappingsAndBindings();
     if (IsValid(this->BuildPreview))
@@ -599,4 +604,72 @@ void AHBPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
         this->BuildPreview->Destroy();
     }
     Super::EndPlay(EndPlayReason);
+}
+
+void AHBPlayerController::HBDebug()
+{
+#if !UE_BUILD_SHIPPING
+    AHBHUD* DemoHUD = Cast<AHBHUD>(this->GetHUD());
+    if (DemoHUD)
+    {
+        DemoHUD->ToggleDiagnostics();
+    }
+#endif
+}
+
+void AHBPlayerController::HBDebugClear()
+{
+    this->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->Clear();
+}
+
+void AHBPlayerController::HBDebugFreeze()
+{
+    this->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->ToggleFreeze();
+}
+
+void AHBPlayerController::HBDebugFilter(FName Category)
+{
+    if (Category == TEXT("All"))
+    {
+        Category = NAME_None;
+    }
+    if (!Category.IsNone() && Category != TEXT("Input") && Category != TEXT("Command") && Category != TEXT("Animation") && Category != TEXT("Combat") && Category != TEXT("System"))
+    {
+        UE_LOG(LogHideInTheBox, Warning, TEXT("Filter must be All, Input, Command, Animation, Combat or System."));
+        return;
+    }
+    this->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->SetFilter(Category);
+}
+
+void AHBPlayerController::HBDebugDump()
+{
+    this->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->Dump();
+}
+
+void AHBPlayerController::HBDebugCheck()
+{
+#if !UE_BUILD_SHIPPING
+    TArray<FString> Checks;
+    Checks.Add(Cast<UEnhancedInputComponent>(this->InputComponent) && this->Mapping && this->SlotMapping ? TEXT("OK Enhanced Input component and owned mapping objects exist.") : TEXT("ERROR Enhanced Input missing: inspect DefaultInput.ini and controller."));
+    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
+    if (Player)
+    {
+        Player->AppendDebugChecks(Checks);
+    }
+    else
+    {
+        Checks.Add(TEXT("ERROR No HB player possessed: inspect GameMode / Default Pawn Class."));
+    }
+    UHBDebugSubsystem* Debug = this->GetWorld()->GetSubsystem<UHBDebugSubsystem>();
+    Debug->SetChecks(Checks);
+    Debug->Add(TEXT("System"), TEXT("Configuration checks refreshed; open checks page or HBDebugDump."));
+#endif
+}
+
+void AHBPlayerController::HBDebugReset()
+{
+#if !UE_BUILD_SHIPPING
+    // Full map reload uses normal EndPlay cleanup; never jumps around phase invariants.
+    UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
+#endif
 }

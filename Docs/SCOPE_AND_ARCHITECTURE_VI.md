@@ -22,6 +22,7 @@ Demo cá nhân độc lập, namespace HB; không tích hợp source Vault. Mụ
 - Animation cung cấp pose và thời điểm melee hit qua notify. Gameplay không dựa vào tên animation node. Montage assigned nhưng phát lỗi bị hủy; fallback timer chỉ dùng nếu chưa gán montage.
 - Feedback component chỉ trình bày trạng thái đã được nhận, không tự sở hữu gameplay command. Rings không collision; transient bursts tự hết lifetime.
 - GameMode sở hữu phase/economy/wave/objectives. Enemy registry dùng weak pointer; snapshot khi AoE có thể làm enemy bị hủy. Timer và device delegate được gỡ khi EndPlay.
+- HBDebugSubsystem sở hữu history theo World, giới hạn128, không tick và không giữ Actor pointer. HUD chỉ đọc; filter/freeze không sửa gameplay. Controller cung cấp console command và timer kiểm tra ban đầu, dọn timer khi EndPlay.
 - HBRuleCore là phần C++ độc lập thực sự dùng bởi runtime: dead zone, wave count, ability budget, greed ledger. Tests biên dịch header này trực tiếp.
 
 Không dùng GAS, NavMesh, replication hoặc plugin runtime ngoài Enhanced Input. Không tuyên bố hoàn tất toàn bộ GDD. Balance và hình thức vẫn cần playtest/Editor review; không có console SDK hoặc platform được chỉ định để xác nhận console.

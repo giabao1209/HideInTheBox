@@ -1,4 +1,5 @@
 #include "HBCombatant.h"
+#include "HBDebugSubsystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -62,6 +63,7 @@ float AHBCombatant::TakeDamage(float fDamage, const FDamageEvent& DamageEvent, A
     }
     const float fApplied = FMath::Min(fDamage, this->fHealth);
     this->fHealth -= fApplied;
+    UHBDebugSubsystem::Record(this, TEXT("Combat"), FString::Printf(TEXT("%s -> %s damage=%.1f HP=%.1f"), *GetNameSafe(DamageCauser), *this->GetName(), fApplied, this->fHealth));
     if (!this->IsAlive())
     {
         this->OnDeath();

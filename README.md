@@ -18,6 +18,7 @@ Demo cá nhân **UE 5.7 / C++ / single-player**, dựa trên vòng chơi GDD và
 - HP/MP, dodge miễn MP với cửa sổ miễn damage, guard, heal; nonlethal damage không tự ngắt swing.
 - Town → Dungeon → Return/prep → Defense năm wave → Town; Gate → Anima, turret, repair, respawn Defense.
 - Ba cache greed tùy chọn: thêm tài nguyên đổi lấy Threat và enemy đông hơn.
+- Debug ba trang, history 128 sự kiện có filter/freeze/dump và kiểm tra cấu hình; xem [hướng dẫn debug](Docs/DEBUG_SYSTEM_VI.md).
 - HUD sáu slot, diagnostics runtime, vòng destination/hover/target, hit burst fade, đèn hai vùng và material hooks.
 
 Controls, recipe material và asset wiring nằm trong hướng dẫn Editor. Gamepad trên Windows chưa chứng minh console support.

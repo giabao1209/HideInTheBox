@@ -4,7 +4,7 @@ Tất cả mục Editor/runtime dưới đây là **chưa chạy**, đánh dấu
 
 ## Kịch bản trình bày khoảng 5–8 phút
 
-1. Town: mở F2, chỉ map/GameMode/controller/pawn/Anim class thực tế. Di chuyển chậm/full stick, đổi aim; thử camera yaw 90 rồi trả 0.
+1. Town: mở F2 trang State, chỉ map/GameMode/controller/pawn/Anim class thực tế. Di chuyển chậm/full stick, đổi aim; thử camera yaw 90 rồi trả 0.
 2. Dungeon: click tới vị trí, hover enemy, chọn attack; click lệnh khác giữa swing để thấy buffer chỉ xuất hiện thành lệnh sau khi đòn kết thúc.
 3. Montage: chỉ HP/hit count đổi ở HB Attack Hit, phân biệt playback và assigned. Chịu một đòn không chết trong lúc đánh để thấy đòn không bị ngắt.
 4. Sáu kỹ năng: Pulse, dodge không tốn MP, Guard, Mend khi mất HP, Bolt có tầm. Cho thấy cooldown/MP trên HUD.
@@ -34,6 +34,10 @@ Tất cả mục Editor/runtime dưới đây là **chưa chạy**, đánh dấu
 | Cleanup | Restart/đổi phase nhiều lần không nhân đôi binding, ring hoặc timer; burst fade rồi biến mất |
 | Visual | Màu dễ phân biệt, ring không chặn trace/collision, chân mesh chạm sàn, text HUD đọc được ở720p/1080p |
 | Packaging | Save map, cook, chạy Development executable ngoài Editor; lặp controls/phase/animation trên bản đóng gói |
+
+## Debug system
+
+Thực hiện [checklist debug](DEBUG_SYSTEM_VI.md): ba trang, filter/freeze/clear/dump, cap128, cảnh báo cấu hình, reset và Shipping. Dùng Events để chỉ ra command buffered/notify/damage thật, không chỉ mô tả sơ đồ. Các mục runtime này chưa chạy trong môi trường tạo source.
 
 ## Kiểm tra tự động
 

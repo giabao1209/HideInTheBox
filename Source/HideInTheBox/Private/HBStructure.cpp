@@ -1,4 +1,5 @@
 #include "HBStructure.h"
+#include "HBDebugSubsystem.h"
 #include "HBGameMode.h"
 #include "HBEnemyCharacter.h"
 #include "Components/StaticMeshComponent.h"
@@ -68,6 +69,7 @@ float AHBStructure::TakeDamage(float fDamage, const FDamageEvent& DamageEvent, A
     }
     const float fApplied = FMath::Min(fDamage, this->fHealth);
     this->fHealth -= fApplied;
+    UHBDebugSubsystem::Record(this, TEXT("Combat"), FString::Printf(TEXT("Structure %s damage=%.1f HP=%.1f"), *this->GetName(), fApplied, this->fHealth));
     if (!this->IsAlive())
     {
         this->SetActorHiddenInGame(true);

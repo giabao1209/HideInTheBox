@@ -1,4 +1,6 @@
 #include "HBPlayerCharacter.h"
+#include "HBDebugSubsystem.h"
+#include "Engine/SkeletalMesh.h"
 #include "HBEnemyCharacter.h"
 #include "HBGameMode.h"
 #include "HBIndicator.h"
@@ -36,15 +38,18 @@ void AHBPlayerCharacter::RequestMove(const FVector& Position)
 {
     if (!this->IsAlive() || this->bBuildMode || this->bDodging)
     {
+        UHBDebugSubsystem::Record(this, TEXT("Command"), TEXT("Move rejected: dead, building or dodging"));
         return;
     }
     if (this->bAttacking)
     {
+        UHBDebugSubsystem::Record(this, TEXT("Command"), TEXT("Move buffered; replaces previous buffer"));
         this->BufferedCommand = EHBCommand::EHBC_Move;
         this->BufferedDestination = Position;
         this->BufferedTarget.Reset();
         return;
     }
+    UHBDebugSubsystem::Record(this, TEXT("Command"), FString::Printf(TEXT("Move accepted %s"), *Position.ToCompactString()));
     this->Command = EHBCommand::EHBC_Move;
     this->Destination = Position;
     this->AttackTarget.Reset();
@@ -55,15 +60,18 @@ void AHBPlayerCharacter::RequestAttack(AHBEnemyCharacter* Target, bool bInPlace)
 {
     if (!this->IsAlive() || this->bBuildMode || this->bDodging || !IsValid(Target) || !Target->IsAlive())
     {
+        UHBDebugSubsystem::Record(this, TEXT("Command"), TEXT("Attack rejected: player state or invalid target"));
         return;
     }
     if (this->bAttacking)
     {
+        UHBDebugSubsystem::Record(this, TEXT("Command"), TEXT("Attack buffered; replaces previous buffer"));
         this->BufferedCommand = EHBCommand::EHBC_Attack;
         this->BufferedTarget = Target;
         this->bBufferedInPlace = bInPlace;
         return;
     }
+    UHBDebugSubsystem::Record(this, TEXT("Command"), FString::Printf(TEXT("Attack accepted target=%s"), *GetNameSafe(Target)));
     this->Command = EHBCommand::EHBC_Attack;
     this->AttackTarget = Target;
     this->bInPlaceAttack = bInPlace;
@@ -238,6 +246,7 @@ void AHBPlayerCharacter::StartAttack()
         const float fDuration = Anim ? Anim->Montage_Play(this->AttackMontage) : 0.0f;
         if (fDuration <= 0.0f)
         {
+            UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Playback FAILED: check mesh, AnimBP, skeleton and slot"));
             this->AttackPlayback = TEXT("Playback failed");
             this->LastAttackOutcome = TEXT("Playback failed: check mesh / AnimBP / skeleton");
             UE_LOG(LogHideInTheBox, Warning, TEXT("Attack montage could not play on %s"), *this->GetName());
@@ -246,6 +255,7 @@ void AHBPlayerCharacter::StartAttack()
             this->AttackTarget.Reset();
             return;
         }
+        UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Montage started"));
         this->AttackPlayback = TEXT("Montage");
         FOnMontageEnded EndDelegate;
         EndDelegate.BindUObject(this, &AHBPlayerCharacter::OnMontageEnded);
@@ -253,6 +263,7 @@ void AHBPlayerCharacter::StartAttack()
         this->GetWorldTimerManager().SetTimer(this->AttackEndTimer, this, &AHBPlayerCharacter::OnAttackTimeout, fDuration + 0.5f, false);
         return;
     }
+    UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Timed fallback started; no montage assigned"));
     this->AttackPlayback = TEXT("Timed prototype");
     this->GetWorldTimerManager().SetTimer(this->AttackHitTimer, this, &AHBPlayerCharacter::DeliverAttackHit, FMath::Max(0.01f, this->fFallbackWindup), false);
     this->GetWorldTimerManager().SetTimer(this->AttackEndTimer, this, &AHBPlayerCharacter::OnAttackTimeout, FMath::Max(this->fFallbackWindup + 0.01f, this->fFallbackDuration), false);
@@ -260,10 +271,15 @@ void AHBPlayerCharacter::StartAttack()
 
 void AHBPlayerCharacter::DeliverAnimationHit(UAnimSequenceBase* Animation)
 {
+    UHBDebugSubsystem::Record(this, TEXT("Animation"), FString::Printf(TEXT("Notify received asset=%s"), *GetNameSafe(Animation)));
     UAnimInstance* Anim = this->GetMesh()->GetAnimInstance();
     if (Animation == this->AttackMontage && Anim && Anim->Montage_IsActive(this->AttackMontage))
     {
         this->DeliverAttackHit();
+    }
+    else
+    {
+        UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Notify ignored: wrong asset or inactive montage"));
     }
 }
 
@@ -271,8 +287,10 @@ void AHBPlayerCharacter::DeliverAttackHit()
 {
     if (!this->bAttacking || this->bHitDelivered || !this->IsAlive())
     {
+        UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Hit ignored: duplicate, late or dead"));
         return;
     }
+    UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Hit event accepted (notify or fallback)"));
     this->bHitDelivered = true;
     UE_LOG(LogHideInTheBox, Log, TEXT("Attack hit event: source=%s player=%s"), *this->AttackPlayback, *this->GetName());
     AHBEnemyCharacter* Target = this->AttackTarget.Get();
@@ -281,6 +299,10 @@ void AHBPlayerCharacter::DeliverAttackHit()
         UGameplayStatics::ApplyDamage(Target, this->fAttackDamage, this->GetController(), this, UDamageType::StaticClass());
         ++this->iHitCount;
         this->Feedback->PlayEffect(this->GetActorLocation() - FVector(0.0f, 0.0f, this->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()), 90.0f, FLinearColor(1.0f, 0.5f, 0.15f));
+    }
+    else
+    {
+        UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Melee missed: target gone, outside range or blocked line"));
     }
 }
 
@@ -302,6 +324,7 @@ void AHBPlayerCharacter::FinishAttack()
     }
     this->Command = EHBCommand::EHBC_None;
     this->AttackTarget.Reset();
+    UHBDebugSubsystem::Record(this, TEXT("Command"), TEXT("Swing released; consume buffered command if present"));
     const EHBCommand NextCommand = this->BufferedCommand;
     this->BufferedCommand = EHBCommand::EHBC_None;
     if (NextCommand == EHBCommand::EHBC_Move)
@@ -322,6 +345,7 @@ void AHBPlayerCharacter::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
         return;
     }
     this->LastAttackOutcome = bInterrupted ? TEXT("Interrupted") : (this->bHitDelivered ? TEXT("Completed") : TEXT("Completed without notify"));
+    UHBDebugSubsystem::Record(this, TEXT("Animation"), this->LastAttackOutcome);
     UE_LOG(LogHideInTheBox, Log, TEXT("Attack ended: %s"), *this->LastAttackOutcome);
     if (bInterrupted)
     {
@@ -332,6 +356,10 @@ void AHBPlayerCharacter::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 
 void AHBPlayerCharacter::CancelCommands()
 {
+    if (this->bAttacking || this->bDodging || this->Command != EHBCommand::EHBC_None || this->HasBufferedCommand())
+    {
+        UHBDebugSubsystem::Record(this, TEXT("Command"), TEXT("Cancel: command, buffer and attack timers cleared"));
+    }
     if (this->bAttacking)
     {
         this->LastAttackOutcome = TEXT("Canceled by command / lifecycle");
@@ -523,6 +551,7 @@ float AHBPlayerCharacter::TakeDamage(float fDamage, const FDamageEvent& DamageEv
     const float fNow = this->GetWorld()->GetTimeSeconds();
     if (this->bDodging && fNow < this->fInvulnerableUntil)
     {
+        UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Damage avoided: dodge immunity window"));
         return 0.0f;
     }
     const float fMultiplier = fNow < this->fGuardUntil ? 1.0f - this->fGuardReduction : 1.0f;
@@ -541,6 +570,7 @@ bool AHBPlayerCharacter::HasHitLine(const FVector& Point, const AActor* Target) 
 void AHBPlayerCharacter::OnAttackTimeout()
 {
     this->LastAttackOutcome = this->AttackMontage ? TEXT("Watchdog timeout") : TEXT("Timed attack completed");
+    UHBDebugSubsystem::Record(this, TEXT("Animation"), this->LastAttackOutcome);
     UE_LOG(LogHideInTheBox, Log, TEXT("Attack ended: %s"), *this->LastAttackOutcome);
     this->FinishAttack();
 }
@@ -554,4 +584,30 @@ void AHBPlayerCharacter::BeginPlay()
     {
         UE_LOG(LogHideInTheBox, Warning, TEXT("Attack montage is assigned without an AnimInstance. Wire mesh and Anim Class before testing damage."));
     }
+}
+
+void AHBPlayerCharacter::AppendDebugChecks(TArray<FString>& Checks) const
+{
+    const USkeletalMesh* MeshAsset = this->GetMesh()->GetSkeletalMeshAsset();
+    const UAnimInstance* Anim = this->GetMesh()->GetAnimInstance();
+    Checks.Add(MeshAsset ? TEXT("OK Skeletal mesh assigned.") : TEXT("INFO No skeletal mesh: native placeholder mode."));
+    if (this->AttackMontage)
+    {
+        Checks.Add(Anim ? TEXT("OK AnimInstance exists; playback still needs runtime test.") : TEXT("ERROR Montage assigned but no AnimInstance: set Mesh + Anim Class."));
+        if (MeshAsset && MeshAsset->GetSkeleton() != this->AttackMontage->GetSkeleton())
+        {
+            Checks.Add(TEXT("WARN Mesh/montage skeletons differ; verify compatibility in Editor."));
+        }
+        Checks.Add(TEXT("CHECK DefaultSlot output + HB Attack Hit on montage; verify by attacking."));
+    }
+    else
+    {
+        Checks.Add(TEXT("INFO No montage: timed prototype attack enabled."));
+    }
+    if (!MeshAsset && !this->TintMaterial)
+    {
+        Checks.Add(TEXT("WARN Placeholder Tint Material missing; assign M_DemoTint for colors."));
+    }
+    Checks.Add(this->Feedback->HasRingMaterial() ? TEXT("OK Feedback Ring Material assigned; verify Color/Opacity parameters in Editor.") : TEXT("WARN Feedback Ring Material missing; assign M_DemoRing for tint/fade."));
+    this->Loadout->AppendDebugChecks(Checks);
 }

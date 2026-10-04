@@ -74,7 +74,7 @@ Demo điều khiển displacement bằng CharacterMovement; đặt Root Motion M
 1. Tạo attack montage cùng skeleton, đòn đánh tại chỗ; slot **DefaultGroup.DefaultSlot**.
 2. Đặt notify **HB Attack Hit trực tiếp trên notify track của montage**, đúng frame chạm mục tiêu. Chỉ đặt trong sequence nguồn không đáp ứng kiểm tra asset hiện tại.
 3. BP_DemoPlayer → Combat → Attack Montage = montage vừa tạo.
-4. Play, F2 mở diagnostics. Kiểm tra playback, outcome, hit count và HP enemy.
+4. Play, F2/LT chuyển State → Events → Config Checks → ẩn. Kiểm tra playback, outcome, hit count và HP enemy.
 
 **Không gán montage**: timed fallback để test hình khối. **Đã gán nhưng playback lỗi**: hủy swing, báo lỗi; không âm thầm gây damage bằng timer. **Montage phát nhưng thiếu notify**: không damage, outcome ghi thiếu hit. Duplicate notify tối đa một hit/swing. Watchdog chỉ mở lock, không gây hit.
 
@@ -101,7 +101,7 @@ Click lệnh mới giữa swing: giữ một buffer, lệnh sau thay lệnh trư
 | Cancel / thoát build | Space | R3 |
 | Pause / resume | P | Start |
 | Restart map | F5 | Back |
-| Diagnostics | F2 | Left Trigger |
+| Debug: State → Events → Checks → ẩn | F2 | Left Trigger |
 
 Sáu slot remap được; utility giữ cố định. Console lệnh dùng **index từ 0**:
 
@@ -122,3 +122,7 @@ Hạ sáu enemy được **90 stones, Threat 6**. Ba cache tùy chọn ở phía
 B/D-pad Down bật build; Tab/D-pad Right chọn socket; LMB/A xây turret giá 30. Repair Gate giá 20. Enter bắt đầu Defense năm wave; không build/repair khi wave hoặc break đang diễn ra. Mỗi wave tối đa 40 giây, break 3 giây. Gate mất thì enemy chuyển sang Anima; Anima mất kết thúc run. Player chết trong Defense hồi sinh sau 3 giây; chết Dungeon kết thúc run. Sau wave 5 nhận thưởng, về Town.
 
 Save All. Packaging: thêm DemoArena vào map cook; config đã bật Cook All cho demo nhỏ. Package Windows **Development** trước, chạy executable ngoài Editor, thử cả chuột và gamepad. Commit Content assets, map và Config đã chỉnh. Dùng checklist [DEMO_AND_TESTS_VI.md](DEMO_AND_TESTS_VI.md) để xác nhận. PIE pass không thay thế packaged pass.
+
+## 9. Debug trong lúc lắp asset
+
+Không cần thêm component hoặc Blueprint cho debug. Sau khi Play, mở Config Checks bằng F2 ba lần để xem thiếu cấu hình nào; sau khi sửa và vào PIE lại, kiểm tra Events lúc đánh. Dùng `HBDebugCheck` để refresh, `HBDebugDump` để in kết quả vào Output Log. Hướng dẫn các lệnh filter/freeze/reset và cách đọc chuỗi input → damage nằm trong [DEBUG_SYSTEM_VI.md](DEBUG_SYSTEM_VI.md). `HBDebugReset` reload toàn bộ map đã lưu, không reset riêng từng bài.

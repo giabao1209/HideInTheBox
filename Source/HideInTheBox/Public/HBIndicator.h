@@ -34,6 +34,7 @@ class HIDEINTHEBOX_API UHBFeedbackComponent : public UActorComponent
 public:
     UHBFeedbackComponent();
     void Present(bool bMoveActive, const FVector& Destination, AActor* Hover, AActor* Target);
+    bool HasRingMaterial() const { return this->RingMaterial != nullptr; }
     void HideAll();
     void PlayEffect(const FVector& Position, float fRadius, const FLinearColor& Color);
 protected:
