@@ -37,7 +37,7 @@ Tất cả mục Editor/runtime dưới đây là **chưa chạy**, đánh dấu
 
 ## Debug system
 
-Thực hiện [checklist debug](DEBUG_SYSTEM_VI.md): ba trang, filter/freeze/clear/dump, cap128, cảnh báo cấu hình, reset và Shipping. Dùng Events để chỉ ra command buffered/notify/damage thật, không chỉ mô tả sơ đồ. Các mục runtime này chưa chạy trong môi trường tạo source.
+Thực hiện [checklist debug](DEBUG_SYSTEM_VI.md): ba trang, FPS/frame time/biểu đồ240 mẫu, HBPerfClear, pause/resume, filter/freeze/clear/dump, cap128, cảnh báo cấu hình, reset và Shipping. Dùng Events để chỉ ra command buffered/notify/damage thật, không chỉ mô tả sơ đồ. Các mục runtime này chưa chạy trong môi trường tạo source.
 
 ## Kiểm tra tự động
 

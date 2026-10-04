@@ -126,3 +126,5 @@ Save All. Packaging: thêm DemoArena vào map cook; config đã bật Cook All c
 ## 9. Debug trong lúc lắp asset
 
 Không cần thêm component hoặc Blueprint cho debug. Sau khi Play, mở Config Checks bằng F2 ba lần để xem thiếu cấu hình nào; sau khi sửa và vào PIE lại, kiểm tra Events lúc đánh. Dùng `HBDebugCheck` để refresh, `HBDebugDump` để in kết quả vào Output Log. Hướng dẫn các lệnh filter/freeze/reset và cách đọc chuỗi input → damage nằm trong [DEBUG_SYSTEM_VI.md](DEBUG_SYSTEM_VI.md). `HBDebugReset` reload toàn bộ map đã lưu, không reset riêng từng bài.
+
+Trang State đã có FPS hiện tại/trung bình, frame time và biểu đồ tối đa240 mẫu, tự hoạt động không cần lắp thêm. Dùng `HBPerfClear` trước mỗi lượt đo; `HBDebugDump` in kèm performance summary. Đọc giới hạn phép đo HUD và hành vi pause trong hướng dẫn debug trước khi dùng số liệu để so sánh.

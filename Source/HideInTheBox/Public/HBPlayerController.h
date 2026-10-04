@@ -29,6 +29,7 @@ public:
     UFUNCTION(BlueprintPure, Category="Input") FKey GetSlotKey(int32 iSlot, bool bForGamepad) const;
     UFUNCTION(Exec) void HBDebug();
     UFUNCTION(Exec) void HBDebugClear();
+    UFUNCTION(Exec) void HBPerfClear();
     UFUNCTION(Exec) void HBDebugFreeze();
     UFUNCTION(Exec) void HBDebugFilter(FName Category);
     UFUNCTION(Exec) void HBDebugDump();

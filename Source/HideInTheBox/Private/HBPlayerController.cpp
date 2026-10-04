@@ -673,3 +673,10 @@ void AHBPlayerController::HBDebugReset()
     UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
 #endif
 }
+
+void AHBPlayerController::HBPerfClear()
+{
+#if !UE_BUILD_SHIPPING
+    this->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->ClearPerformance();
+#endif
+}
