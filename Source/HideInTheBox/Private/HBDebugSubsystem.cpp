@@ -67,6 +67,7 @@ void UHBDebugSubsystem::Dump() const
 {
 #if !UE_BUILD_SHIPPING
     UE_LOG(LogHideInTheBox, Display, TEXT("HB DEBUG SNAPSHOT: map=%s frozen=%d filter=%s"), *this->GetWorld()->GetMapName(), this->bFrozen, *this->Filter.ToString());
+    UE_LOG(LogHideInTheBox, Display, TEXT("[Performance] HUD cadence: current=%.1f FPS / %.2f ms avg=%.1f FPS / %.2f ms worst=%.2f ms samples=%d window=%.2fs paused=%d"), this->FrameStats.CurrentFPS(), this->FrameStats.CurrentMilliseconds(), this->FrameStats.AverageFPS(), this->FrameStats.AverageMilliseconds(), this->FrameStats.WorstMilliseconds(), static_cast<int32>(this->FrameStats.Num()), this->FrameStats.WindowSeconds(), this->bPerformancePaused);
     for (const FString& Check : this->Checks)
     {
         UE_LOG(LogHideInTheBox, Display, TEXT("[Check] %s"), *Check);
@@ -77,5 +78,13 @@ void UHBDebugSubsystem::Dump() const
     {
         UE_LOG(LogHideInTheBox, Display, TEXT("%s"), *Line);
     }
+#endif
+}
+
+void UHBDebugSubsystem::SampleFrame(uint64 Frame, double Now, bool bPaused)
+{
+#if !UE_BUILD_SHIPPING
+    this->bPerformancePaused = bPaused;
+    this->FrameStats.Observe(Frame, Now, bPaused);
 #endif
 }

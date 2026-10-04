@@ -1,5 +1,7 @@
 #include "HBHUD.h"
 #include "HBDebugSubsystem.h"
+#include "CoreGlobals.h"
+#include "HAL/PlatformTime.h"
 #include "HBGameMode.h"
 #include "HBPlayerCharacter.h"
 #include "HBPlayerController.h"
@@ -25,6 +27,12 @@ void AHBHUD::Panel(float fX, float fY, float fWidth, float fHeight, const FLinea
 void AHBHUD::DrawHUD()
 {
     Super::DrawHUD();
+#if !UE_BUILD_SHIPPING
+    if (this->GetWorld() && this->GetOwningPlayerController())
+    {
+        this->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->SampleFrame(GFrameCounter, FPlatformTime::Seconds(), this->GetOwningPlayerController()->IsPaused());
+    }
+#endif
     AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
     AHBPlayerCharacter* Player = Mode ? Mode->GetPlayer() : nullptr;
     AHBPlayerController* Controller = Cast<AHBPlayerController>(this->GetOwningPlayerController());
@@ -110,10 +118,11 @@ void AHBHUD::DrawHUD()
     {
         const float fY = fInfoY + 62.0f;
         const float fDebugWidth = FMath::Min(fWidth - 48.0f, 950.0f);
-        this->Panel(24.0f, fY, fDebugWidth, 238.0f, Muted);
+        const float fDebugHeight = this->iDebugPage == 0 ? 328.0f : 238.0f;
+        this->Panel(24.0f, fY, fDebugWidth, fDebugHeight, Muted);
         UHBDebugSubsystem* Debug = this->GetWorld()->GetSubsystem<UHBDebugSubsystem>();
         const TCHAR* PageNames[] = { TEXT("STATE"), TEXT("EVENTS"), TEXT("CONFIG CHECKS") };
-        this->Label(FString::Printf(TEXT("DEBUG %s | F2 / LT: next page then hide | %s | filter=%s"), PageNames[this->iDebugPage], Debug->IsFrozen() ? TEXT("FROZEN") : TEXT("RECORDING"), Debug->GetFilter().IsNone() ? TEXT("All") : *Debug->GetFilter().ToString()), 36.0f, fY + 8.0f, Ice, 0.8f);
+        this->Label(FString::Printf(TEXT("DEBUG %s | F2 / LT: next page then hide | %s | filter=%s"), PageNames[this->iDebugPage], Debug->IsFrozen() ? TEXT("EVENTS FROZEN") : TEXT("EVENTS RECORDING"), Debug->GetFilter().IsNone() ? TEXT("All") : *Debug->GetFilter().ToString()), 36.0f, fY + 8.0f, Ice, 0.8f);
         TArray<FString> Lines;
         if (this->iDebugPage == 0)
         {
@@ -124,7 +133,38 @@ void AHBHUD::DrawHUD()
             Lines.Add(FString::Printf(TEXT("Outcome %s | Hits %d"), *Player->GetLastAttackOutcome(), Player->GetHitCount()));
             Lines.Add(FString::Printf(TEXT("Command %d | Buffer %d | Attack %d | Dodge %d"), static_cast<int32>(Player->GetCommand()), Player->HasBufferedCommand(), Player->IsAttacking(), Player->IsDodging()));
             Lines.Add(FString::Printf(TEXT("Speed %.0f | Aim error %.1f | Target %s"), Player->GetVelocity().Size2D(), Player->GetAimError(), *GetNameSafe(Player->GetAttackTarget())));
-            Lines.Add(TEXT("Command enum: 0=None, 1=Move, 2=Attack. Buffer: 1=pending."));
+            const HBPerformance::FFrameStats& Stats = Debug->GetFrameStats();
+            if (Stats.Num() == 0)
+            {
+                Lines.Add(TEXT("FPS: warming up (needs two consecutive unpaused HUD frames)."));
+            }
+            else
+            {
+                Lines.Add(FString::Printf(TEXT("FPS %.1f | Average %.1f | Frame %.2f ms | Average %.2f ms %s"), Stats.CurrentFPS(), Stats.AverageFPS(), Stats.CurrentMilliseconds(), Stats.AverageMilliseconds(), Debug->IsPerformancePaused() ? TEXT("[PAUSED: last values]") : TEXT("")));
+                Lines.Add(FString::Printf(TEXT("Worst %.2f ms | %d intervals / %.2fs sampled | HBPerfClear: reset"), Stats.WorstMilliseconds(), static_cast<int32>(Stats.Num()), Stats.WindowSeconds()));
+            }
+            const float fGraphX = 36.0f;
+            const float fGraphY = fY + 202.0f;
+            const float fGraphWidth = fDebugWidth - 125.0f;
+            const float fGraphHeight = 70.0f;
+            const double MaxMs = FMath::Max(50.0, Stats.WorstMilliseconds());
+            this->DrawRect(FLinearColor(0.01f, 0.02f, 0.04f), fGraphX, fGraphY, fGraphWidth, fGraphHeight);
+            const double Budgets[] = { 1000.0 / 60.0, 1000.0 / 30.0 };
+            for (double Budget : Budgets)
+            {
+                const float fLineY = fGraphY + fGraphHeight * (1.0 - Budget / MaxMs);
+                this->DrawLine(fGraphX, fLineY, fGraphX + fGraphWidth, fLineY, Muted, 1.0f);
+                this->Label(FString::Printf(TEXT("%.2f ms"), Budget), fGraphX + fGraphWidth + 6.0f, fLineY - 7.0f, Muted, 0.7f);
+            }
+            for (std::size_t Index = 1; Index < Stats.Num(); ++Index)
+            {
+                const float fX0 = fGraphX + fGraphWidth * (Index - 1) / (HBPerformance::FFrameStats::Capacity - 1);
+                const float fX1 = fGraphX + fGraphWidth * Index / (HBPerformance::FFrameStats::Capacity - 1);
+                const double Ms0 = Stats.SecondsAt(Index - 1) * 1000.0;
+                const double Ms1 = Stats.SecondsAt(Index) * 1000.0;
+                this->DrawLine(fX0, fGraphY + fGraphHeight * (1.0 - Ms0 / MaxMs), fX1, fGraphY + fGraphHeight * (1.0 - Ms1 / MaxMs), Ms1 > 1000.0 / 30.0 ? Gold : Ice, 1.5f);
+            }
+            this->Label(FString::Printf(TEXT("HUD frame intervals | oldest -> newest | Y: 0..%.1f ms | up to 240 samples"), MaxMs), fGraphX, fGraphY + fGraphHeight + 8.0f, Muted, 0.75f);
         }
         else if (this->iDebugPage == 1)
         {
@@ -145,13 +185,14 @@ void AHBHUD::DrawHUD()
             const FLinearColor Color = Lines[Index].StartsWith(TEXT("ERROR")) ? FLinearColor(1.0f, 0.3f, 0.25f) : Muted;
             this->Label(Display, 36.0f, fY + 33.0f + Index * 20.0f, Color, 0.85f);
         }
-        this->Label(TEXT("Console: HBDebugCheck / Clear / Freeze / Filter / Dump / Reset (full command names)"), 36.0f, fY + 218.0f, Ice, 0.75f);
+        this->Label(TEXT("Console: HBDebugCheck / Clear / Freeze / Filter / Dump / Reset (full command names)"), 36.0f, fY + fDebugHeight - 20.0f, Ice, 0.75f);
     }
 #endif
     if (Controller->IsPaused() || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
     {
-        this->DrawRect(FLinearColor(0.0f, 0.0f, 0.015f, 0.7f), 0.0f, fHeight * 0.4f, fWidth, 110.0f);
-        this->Label(Controller->IsPaused() ? TEXT("PAUSED   /   P or Start to resume") : TEXT("RUN ENDED   /   F5 or Back to restart"), fWidth * 0.5f - 180.0f, fHeight * 0.4f + 35.0f, Gold, 1.4f);
+        const float fOverlayY = this->bShowDiagnostics ? fHeight - 58.0f : fHeight * 0.4f;
+        this->DrawRect(FLinearColor(0.0f, 0.0f, 0.015f, 0.7f), 0.0f, fOverlayY, fWidth, this->bShowDiagnostics ? 32.0f : 110.0f);
+        this->Label(Controller->IsPaused() ? TEXT("PAUSED   /   P or Start to resume") : TEXT("RUN ENDED   /   F5 or Back to restart"), fWidth * 0.5f - 180.0f, fOverlayY + (this->bShowDiagnostics ? 6.0f : 35.0f), Gold, this->bShowDiagnostics ? 0.9f : 1.4f);
     }
 }
 
