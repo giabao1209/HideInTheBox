@@ -31,3 +31,7 @@ Static validation and diff whitespace checks rerun after the debug changes: PASS
 - Executed `ASAN_OPTIONS=detect_leaks=0 python Scripts/test_rules.py`: PASS, 3413 total gameplay/performance checks with ASan/UBSan. LeakSanitizer remains disabled for the sandbox restriction above.
 - Executed static validation (16 headers) and `git diff --check`: PASS.
 - HUD integration, pause behavior in engine, FPS comparison, graph rendering/resolution and Shipping build: NOT RUN. Native tests do not measure the game's actual FPS.
+
+## UE5.7 target settings correction — 2026-10-05
+
+User build output reported MSB3073/code6 and UE5.7 upgrade warnings; the root build error was not included. Changed Game and Editor targets from BuildSettingsVersion.V5 to V6 to align with the engine's requested defaults. Static source validation and diff check passed. This fixes the known old settings; it does not establish that code6 is resolved. UHT/UBT confirmation still requires the user's full Build Output.

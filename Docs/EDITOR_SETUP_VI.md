@@ -12,6 +12,14 @@ powershell -File Scripts/Build-Editor.ps1 -EngineRoot 'C:\Program Files\Epic Gam
 
 Hoặc generate project files rồi build target `HideInTheBoxEditor`, Development Editor, Win64. Mở `HideInTheBox.uproject` sau khi build thành công. Nếu dùng source engine, chọn lại Engine Version cho project. Generate project files thành công không đồng nghĩa compile thành công. Giữ log lỗi đầu tiên nếu build bị chặn; không dùng Live Coding để xác nhận thay đổi reflected header.
 
+### Mở bản ZIP và xem lỗi build
+
+Không cần Git trên máy: giải nén toàn bộ ZIP của nhánh demo. File `.sln` không được lưu trong repo; chuột phải `HideInTheBox.uproject` → Generate Visual Studio project files (Windows11 có thể cần Show more options). Mở solution, chọn Development Editor/Win64 và Build project HideInTheBox. Nếu không có menu Generate, có thể dùng Build-Editor.ps1 ở trên để build trực tiếp.
+
+Hai file `Source/HideInTheBox.Target.cs` và `Source/HideInTheBoxEditor.Target.cs` dùng `DefaultBuildSettings = BuildSettingsVersion.V6` theo thông báo upgrade của UE5.7. Bản ZIP cũ có V5: đổi thành V6 ở cả hai file rồi build lại. Không sửa file sinh trong Intermediate hoặc cài thêm engine chỉ để tắt cảnh báo.
+
+`MSB3073 ... exited with code 6` chỉ là thông báo tổng kết. Lấy lỗi gốc tại Visual Studio → View → Output (Ctrl+Alt+O) → Show output from: Build, hoặc log `%LOCALAPPDATA%\UnrealBuildTool\Log.txt`. Gửi toàn bộ Output Build nếu không tìm thấy dòng lỗi. Warning [Upgrade] không đủ để kết luận nguyên nhân build thất bại.
+
 ## 2. Chạy bản hình khối trước
 
 1. New Level → Empty Level. Save `/Game/Maps/DemoArena`.
