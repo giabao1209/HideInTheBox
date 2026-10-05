@@ -32,6 +32,16 @@ Static validation and diff whitespace checks rerun after the debug changes: PASS
 - Executed static validation (16 headers) and `git diff --check`: PASS.
 - HUD integration, pause behavior in engine, FPS comparison, graph rendering/resolution and Shipping build: NOT RUN. Native tests do not measure the game's actual FPS.
 
+## Map-authored level and Blueprint asset handoff — 2026-10-05
+
+- Replaced runtime primitive arena construction with actor discovery by documented Actor Tags. DemoArena now owns its geometry, lighting, objectives, cache meshes, spawn anchors and build sockets. Enemy and turret classes are selected from the Blueprint GameMode defaults; objective/cache actors are placed in the map.
+- Added Blueprint-assignable phase/wave/enemy events for optional presentation. The C++ GameMode still owns phase progression, resource changes, enemy spawning rules, wave timing, construction and repairs.
+- Editor guide now walks through DemoArena layout, actor tags, BP_DemoPlayer camera/mesh setup, structure/enemy child Blueprints, AnimBP locomotion → Slot → Output Pose, and attack montage notify.
+- `python Scripts/validate_source.py`: PASS (16 headers and project/doc consistency checks).
+- `ASAN_OPTIONS=detect_leaks=0 python Scripts/test_rules.py`: PASS (3413 native gameplay/performance checks; Unreal runtime is not covered).
+- `git diff --check`: PASS.
+- UHT/UBT, Unreal automation, PIE, and packaging still require UE 5.7 on the user's machine. Do not reuse build success from the prior source revision as evidence for this change.
+
 ## UE5.7 target settings correction — 2026-10-05
 
 User build output reported MSB3073/code6 and UE5.7 upgrade warnings; the root build error was not included. Changed Game and Editor targets from BuildSettingsVersion.V5 to V6 to align with the engine's requested defaults. Static source validation and diff check passed. This fixes the known old settings; it does not establish that code6 is resolved. UHT/UBT confirmation still requires the user's full Build Output.

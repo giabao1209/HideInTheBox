@@ -14,21 +14,19 @@ class HIDEINTHEBOX_API AHBStructure : public AActor
     GENERATED_BODY()
 public:
     AHBStructure();
-    void Configure(EHBStructure NewKind);
+    UFUNCTION(BlueprintCallable, Category="Structure") void Configure(EHBStructure NewKind);
     void SetTintMaterial(class UMaterialInterface* NewMaterial);
     virtual float TakeDamage(float fDamage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
-    bool IsAlive() const { return this->fHealth > 0.0f; }
-    float GetHealth() const { return this->fHealth; }
-    bool NeedsRepair() const { return this->fHealth < this->fMaxHealth; }
-    void Repair();
+    UFUNCTION(BlueprintPure, Category="Structure") bool IsAlive() const { return this->fHealth > 0.0f; }
+    UFUNCTION(BlueprintPure, Category="Structure") float GetHealth() const { return this->fHealth; }
+    UFUNCTION(BlueprintPure, Category="Structure") bool NeedsRepair() const { return this->fHealth < this->fMaxHealth; }
+    UFUNCTION(BlueprintCallable, Category="Structure") void Repair();
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 private:
     void Fire();
-    UPROPERTY(VisibleAnywhere) TObjectPtr<UStaticMeshComponent> Mesh;
-    UPROPERTY() TObjectPtr<class UStaticMesh> SphereMesh;
-    UPROPERTY() TObjectPtr<class UStaticMesh> CylinderMesh;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Appearance", meta=(AllowPrivateAccess="true")) TObjectPtr<UStaticMeshComponent> Mesh;
     EHBStructure Kind = EHBStructure::EHBS_Gate;
     float fMaxHealth = 350.0f;
     float fHealth = 350.0f;

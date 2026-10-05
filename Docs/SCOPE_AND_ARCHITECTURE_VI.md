@@ -5,6 +5,7 @@ Demo cá nhân độc lập, namespace HB; không tích hợp source Vault. Mụ
 | Yêu cầu | Phần triển khai | Giới hạn |
 | --- | --- | --- |
 | Town/Dungeon/Return/Defense | HBGameMode, năm wave, Gate/Anima | Một arena tái sử dụng, không load nhiều map |
+| Map và scene | Map đặt sàn/tường/mesh/đèn/Gate/Anima/cache; C++ tìm spawn/socket/cache qua Actor Tags | Chưa có `.umap`/`.uasset` trong source handoff; cần bạn dựng DemoArena trong Editor |
 | Greed | Ba cache +30 stones/+3 threat mỗi cache | Không procedural loot; kill cũng tăng threat |
 | Sáu action | HBLoadout, DataAsset, cooldown theo ability | Utility bindings cố định, chưa có menu remap |
 | Dodge | 0 MP, movement, miễn damage 0.15s đầu | Animation do Editor gắn |
@@ -22,6 +23,7 @@ Demo cá nhân độc lập, namespace HB; không tích hợp source Vault. Mụ
 - Animation cung cấp pose và thời điểm melee hit qua notify. Gameplay không dựa vào tên animation node. Montage assigned nhưng phát lỗi bị hủy; fallback timer chỉ dùng nếu chưa gán montage.
 - Feedback component chỉ trình bày trạng thái đã được nhận, không tự sở hữu gameplay command. Rings không collision; transient bursts tự hết lifetime.
 - GameMode sở hữu phase/economy/wave/objectives. Enemy registry dùng weak pointer; snapshot khi AoE có thể làm enemy bị hủy. Timer và device delegate được gỡ khi EndPlay.
+- Editor là chủ sở hữu hình dạng map và lắp asset: BP con gán mesh/class/defaults; BP_DemoPlayer chỉnh CameraBoom/Camera kế thừa; AnimBP nối locomotion qua Slot; Attack Montage đặt HB Attack Hit notify. Các BP không tự điều phối luật chơi hoặc vòng phase.
 - HBDebugSubsystem sở hữu history theo World, giới hạn128, không tick và không giữ Actor pointer. HUD gửi một mẫu thời gian thực mỗi engine frame được quan sát vào HBFrameStats (bộ đệm240), rồi đọc để vẽ; filter/freeze chỉ tác động event history, không sửa gameplay. Controller cung cấp console command và timer kiểm tra ban đầu, dọn timer khi EndPlay.
 - HBRuleCore là phần C++ độc lập thực sự dùng bởi runtime: dead zone, wave count, ability budget, greed ledger. Tests biên dịch header này trực tiếp.
 
