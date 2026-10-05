@@ -90,19 +90,35 @@ bool AHBGameMode::DiscoverArenaActors()
 
 AActor* AHBGameMode::FindFirstTaggedActor(FName Tag) const
 {
-    TArray<AActor*> Actors;
+    TArray<TObjectPtr<AActor>> Actors;
     this->FindTaggedActors(Tag, Actors);
-    return Actors.IsEmpty() ? nullptr : Actors[0];
+    return Actors.IsEmpty() ? nullptr : Actors[0].Get();
 }
 
-void AHBGameMode::FindTaggedActors(FName Tag, TArray<AActor*>& OutActors) const
+void AHBGameMode::FindTaggedActors(
+    FName Tag,
+    TArray<TObjectPtr<AActor>>& OutActors) const
 {
     OutActors.Reset();
+
     if (Tag.IsNone() || !IsValid(this->GetWorld()))
     {
         return;
     }
-    UGameplayStatics::GetAllActorsWithTag(this, Tag, OutActors);
+
+    TArray<AActor*> FoundActors;
+    UGameplayStatics::GetAllActorsWithTag(this, Tag, FoundActors);
+
+    OutActors.Reserve(FoundActors.Num());
+
+    for (AActor* FoundActor : FoundActors)
+    {
+        if (IsValid(FoundActor))
+        {
+            OutActors.Add(FoundActor);
+        }
+    }
+
     for (int32 LeftIndex = 0; LeftIndex < OutActors.Num(); ++LeftIndex)
     {
         for (int32 RightIndex = LeftIndex + 1; RightIndex < OutActors.Num(); ++RightIndex)
@@ -474,7 +490,14 @@ void AHBGameMode::ResetGreedCaches()
         }
     }
 }
+FVector AHBGameMode::GetGreedPosition(int32 iIndex) const
+{
+    AActor* Cache = this->GreedCaches.IsValidIndex(iIndex)
+        ? this->GreedCaches[iIndex].Get()
+        : nullptr;
 
+    return IsValid(Cache) ? Cache->GetActorLocation() : FVector::ZeroVector;
+}
 void AHBGameMode::ClaimNearbyGreed()
 {
     AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();

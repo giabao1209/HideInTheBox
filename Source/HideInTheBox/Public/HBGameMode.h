@@ -31,6 +31,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Demo|Build") void RepairGate();
     UFUNCTION(BlueprintCallable, Category="Demo|Dungeon") void ClaimNearbyGreed();
     UFUNCTION(BlueprintCallable, Category="Demo|Flow") void EndRun();
+    UFUNCTION(BlueprintPure, Category="Demo|Dungeon")
+    FVector GetGreedPosition(int32 iIndex) const;
     void RegisterEnemy(AHBEnemyCharacter* Enemy);
     void UnregisterEnemy(AHBEnemyCharacter* Enemy);
     void NotifyEnemyKilled(AHBEnemyCharacter* Enemy);
@@ -80,7 +82,7 @@ protected:
 private:
     bool DiscoverArenaActors();
     AActor* FindFirstTaggedActor(FName Tag) const;
-    void FindTaggedActors(FName Tag, TArray<AActor*>& OutActors) const;
+    void FindTaggedActors(FName Tag, TArray<TObjectPtr<AActor>>& OutActors) const;
     FVector GetTaggedLocation(FName Tag, const FVector& Fallback) const;
     void SpawnDungeon();
     void ResetGreedCaches();
