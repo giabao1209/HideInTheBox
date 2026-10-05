@@ -164,10 +164,10 @@ void AHBPlayerController::SetInputFamily(bool bFromGamepad)
     if (this->bGamepad != bFromGamepad)
     {
         // Switching devices must not cancel an active swing or its hit.
-        AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
-        if (Player && !Player->IsAttacking())
+        AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
+        if (PlayerCharacter && !PlayerCharacter->IsAttacking())
         {
-            Player->CancelCommands();
+            PlayerCharacter->CancelCommands();
         }
         this->bGamepad = bFromGamepad;
     }
@@ -207,14 +207,14 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
     {
         return;
     }
-    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
+    AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
     AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
-    if (!Player || !Mode || !Player->IsAlive() || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
+    if (!PlayerCharacter || !Mode || !PlayerCharacter->IsAlive() || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
     {
         return;
     }
     this->SetInputFamily(bFromGamepad);
-    if (Player->IsBuilding())
+    if (PlayerCharacter->IsBuilding())
     {
         if (iSlot == 0)
         {
@@ -222,15 +222,15 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
         }
         return;
     }
-    UHBLoadoutComponent* Loadout = Player->GetLoadout();
+    UHBLoadoutComponent* Loadout = PlayerCharacter->GetLoadout();
     const EHBAbility Ability = Loadout->GetSlotAbility(iSlot);
     AHBEnemyCharacter* Target = nullptr;
-    FVector AimPoint = Player->GetActorLocation();
+    FVector AimPoint = PlayerCharacter->GetActorLocation();
     bool bInPlace = false;
     if (bFromGamepad)
     {
-        const FVector Aim = Player->GetAimDirection();
-        Target = Mode->FindEnemy(Player->GetActorLocation(), Aim, Loadout->GetSlotSpec(iSlot).fRange + 500.0f);
+        const FVector Aim = PlayerCharacter->GetAimDirection();
+        Target = Mode->FindEnemy(PlayerCharacter->GetActorLocation(), Aim, Loadout->GetSlotSpec(iSlot).fRange + 500.0f);
         AimPoint += Aim * FMath::Min(300.0f, Loadout->GetSlotSpec(iSlot).fRange);
     }
     else
@@ -250,7 +250,7 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
         {
             if (bFloor && !bInPlace)
             {
-                Player->RequestMove(AimPoint);
+                PlayerCharacter->RequestMove(AimPoint);
             }
             return;
         }
@@ -286,9 +286,9 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         return;
     }
     this->SetInputFamily(bFromGamepad);
-    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
+    AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
     AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
-    if (!Player || !Mode)
+    if (!PlayerCharacter || !Mode)
     {
         return;
     }
@@ -297,7 +297,7 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
         return;
     }
-    if (!Player->IsAlive() || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
+    if (!PlayerCharacter->IsAlive() || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
     {
         return;
     }
@@ -308,7 +308,7 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         case HBInput::EUtility::EU_Cycle: Mode->CycleBuildSocket(); break;
         case HBInput::EUtility::EU_Repair: Mode->RepairGate(); break;
         case HBInput::EUtility::EU_Interact: Mode->ClaimNearbyGreed(); break;
-        case HBInput::EUtility::EU_Cancel: Player->SetBuildMode(false); this->ResetTransientInput(); break;
+        case HBInput::EUtility::EU_Cancel: PlayerCharacter->SetBuildMode(false); this->ResetTransientInput(); break;
         default: break;
     }
 }
@@ -349,9 +349,9 @@ bool AHBPlayerController::IsNeutral() const
 void AHBPlayerController::PlayerTick(float fDeltaSeconds)
 {
     Super::PlayerTick(fDeltaSeconds);
-    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
+    AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
     AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
-    if (!Player || !Mode)
+    if (!PlayerCharacter || !Mode)
     {
         if (this->BuildPreview)
         {
@@ -364,15 +364,15 @@ void AHBPlayerController::PlayerTick(float fDeltaSeconds)
         this->bAwaitNeutral = !this->IsNeutral();
         return;
     }
-    if (this->IsPaused() || Mode->GetPhase() == EHBPhase::EHBP_GameOver || !Player->IsAlive())
+    if (this->IsPaused() || Mode->GetPhase() == EHBPhase::EHBP_GameOver || !PlayerCharacter->IsAlive())
     {
         return;
     }
-    Player->SetDirectInput(this->bGamepad ? this->MoveInput : this->KeyboardInput);
+    PlayerCharacter->SetDirectInput(this->bGamepad ? this->MoveInput : this->KeyboardInput);
     AHBEnemyCharacter* Hover = nullptr;
     if (this->bGamepad)
     {
-        Player->SetAimInput(this->AimInput);
+        PlayerCharacter->SetAimInput(this->AimInput);
     }
     else
     {
@@ -383,13 +383,13 @@ void AHBPlayerController::PlayerTick(float fDeltaSeconds)
         }
         if (this->GetHitResultUnderCursor(ECC_GameTraceChannel1, false, Hit))
         {
-            Player->SetAimWorldDirection(Hit.ImpactPoint - Player->GetActorLocation());
+            PlayerCharacter->SetAimWorldDirection(Hit.ImpactPoint - PlayerCharacter->GetActorLocation());
         }
     }
-    Player->SetHover(Hover);
+    PlayerCharacter->SetHover(Hover);
     if (this->BuildPreview)
     {
-        if (Player->IsBuilding())
+        if (PlayerCharacter->IsBuilding())
         {
             FVector Position = Mode->GetBuildSocket();
             Position.Z = 0.0f;
@@ -409,10 +409,10 @@ void AHBPlayerController::ResetTransientInput()
     this->KeyboardInput = FVector2D::ZeroVector;
     this->AimInput = FVector2D::ZeroVector;
     this->bAwaitNeutral = true;
-    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
-    if (Player)
+    AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
+    if (PlayerCharacter)
     {
-        Player->CancelCommands();
+        PlayerCharacter->CancelCommands();
     }
     if (this->BuildPreview)
     {
@@ -577,20 +577,20 @@ void AHBPlayerController::HBRebind(int32 SlotIndex, FName KeyName, bool bForGame
 
 void AHBPlayerController::HBAssign(int32 SlotIndex, int32 AbilityIndex)
 {
-    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
-    if (Player && AbilityIndex >= 0 && AbilityIndex < HBRuleCore::iAbilityCount)
+    AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
+    if (PlayerCharacter && AbilityIndex >= 0 && AbilityIndex < HBRuleCore::iAbilityCount)
     {
-        const bool bAccepted = Player->GetLoadout()->AssignAbilityToSlot(SlotIndex, static_cast<EHBAbility>(AbilityIndex));
+        const bool bAccepted = PlayerCharacter->GetLoadout()->AssignAbilityToSlot(SlotIndex, static_cast<EHBAbility>(AbilityIndex));
         this->LastActionResult = bAccepted ? TEXT("Slot reassigned") : TEXT("Assignment rejected");
     }
 }
 
 void AHBPlayerController::HBCameraYaw(float Yaw)
 {
-    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
-    if (Player)
+    AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
+    if (PlayerCharacter)
     {
-        Player->SetCameraYaw(Yaw);
+        PlayerCharacter->SetCameraYaw(Yaw);
     }
 }
 
@@ -651,10 +651,10 @@ void AHBPlayerController::HBDebugCheck()
 #if !UE_BUILD_SHIPPING
     TArray<FString> Checks;
     Checks.Add(Cast<UEnhancedInputComponent>(this->InputComponent) && this->Mapping && this->SlotMapping ? TEXT("OK Enhanced Input component and owned mapping objects exist.") : TEXT("ERROR Enhanced Input missing: inspect DefaultInput.ini and controller."));
-    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetPawn());
-    if (Player)
+    AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
+    if (PlayerCharacter)
     {
-        Player->AppendDebugChecks(Checks);
+        PlayerCharacter->AppendDebugChecks(Checks);
     }
     else
     {

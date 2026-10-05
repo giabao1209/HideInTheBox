@@ -35,3 +35,9 @@ Static validation and diff whitespace checks rerun after the debug changes: PASS
 ## UE5.7 target settings correction — 2026-10-05
 
 User build output reported MSB3073/code6 and UE5.7 upgrade warnings; the root build error was not included. Changed Game and Editor targets from BuildSettingsVersion.V5 to V6 to align with the engine's requested defaults. Static source validation and diff check passed. This fixes the known old settings; it does not establish that code6 is resolved. UHT/UBT confirmation still requires the user's full Build Output.
+
+## User Windows build evidence and C4458 correction — 2026-10-05
+
+- User supplied UE5.7.1 UBT output: VS2022 MSVC14.44 and Windows SDK10.0.22621 detected; UHT processed the project successfully (28 files written). That attempt stopped before C++ compilation because Live Coding was active. This is user-provided evidence, not an engine run in our environment.
+- After closing Editor, user reported eight C4458 errors in HBPlayerController.cpp: local Player declarations hide the inherited APlayerController member. Renamed all eight local variables and their references to PlayerCharacter; no gameplay/API change and no warning suppression.
+- Static source validation and git diff whitespace check rerun: PASS. Unreal C++ compilation/linking, PIE and packaging remain pending; wait for the user's next build result.

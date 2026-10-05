@@ -20,6 +20,10 @@ Hai file `Source/HideInTheBox.Target.cs` và `Source/HideInTheBoxEditor.Target.c
 
 `MSB3073 ... exited with code 6` chỉ là thông báo tổng kết. Lấy lỗi gốc tại Visual Studio → View → Output (Ctrl+Alt+O) → Show output from: Build, hoặc log `%LOCALAPPDATA%\UnrealBuildTool\Log.txt`. Gửi toàn bộ Output Build nếu không tìm thấy dòng lỗi. Warning [Upgrade] không đủ để kết luận nguyên nhân build thất bại.
 
+Nếu log có `Unable to build while Live Coding is active`: Save All và đóng tất cả Unreal Editor/game đang chạy, chờ UnrealEditor.exe thoát rồi Build lại từ Visual Studio. Log này chỉ xác nhận UHT đã qua nếu có dòng UHT processed; chưa chứng minh C++ compile thành công.
+
+Nếu bản ZIP cũ báo `C4458: declaration of 'Player' hides class member` trong HBPlayerController.cpp: mở riêng `Source/HideInTheBox/Private/HBPlayerController.cpp`, đổi identifier nguyên từ `Player` thành `PlayerCharacter` ở cả khai báo và chỗ sử dụng. Trong Replace bật Match case và Match whole word, phạm vi Current document; không đổi tên class AHBPlayerCharacter hoặc sửa toàn solution. Bản nhánh mới đã sửa cả 8 khai báo. Save, đóng Editor rồi Build lại; thay đổi tên biến không cần generate solution lại.
+
 ## 2. Chạy bản hình khối trước
 
 1. New Level → Empty Level. Save `/Game/Maps/DemoArena`.
