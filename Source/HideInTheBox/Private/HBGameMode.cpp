@@ -6,16 +6,7 @@
 #include "HBStructure.h"
 #include "HBHUD.h"
 #include "HideInTheBox.h"
-#include "Engine/StaticMeshActor.h"
-#include "Engine/DirectionalLight.h"
-#include "Engine/PointLight.h"
-#include "Components/PointLightComponent.h"
-#include "Components/StaticMeshComponent.h"
-#include "Components/LightComponent.h"
-#include "Materials/MaterialInstanceDynamic.h"
 #include "Kismet/GameplayStatics.h"
-#include "UObject/ConstructorHelpers.h"
-#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -26,103 +17,108 @@ AHBGameMode::AHBGameMode()
     this->HUDClass = AHBHUD::StaticClass();
     this->EnemyClass = AHBEnemyCharacter::StaticClass();
     this->Enemies.Reserve(32);
-    this->Turrets.SetNum(4);
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> MeshAsset(TEXT("/Engine/BasicShapes/Cube.Cube"));
-    if (MeshAsset.Succeeded())
-    {
-        this->CubeMesh = MeshAsset.Object;
-    }
 }
 
 void AHBGameMode::StartPlay()
 {
-    this->CreateArena();
     Super::StartPlay();
-    if (!IsValid(this->Gate) || !IsValid(this->Anima))
+    if (!this->DiscoverArenaActors())
     {
-        UE_LOG(LogHideInTheBox, Error, TEXT("Arena objective creation failed."));
         this->EndRun();
         return;
     }
-    AHBPlayerCharacter* Player = this->GetPlayer();
-    if (Player)
+
+    AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
+    if (PlayerCharacter)
     {
-        Player->ResetForPhase(FVector(-400.0f, 0.0f, 100.0f));
+        PlayerCharacter->ResetForPhase(this->GetTaggedLocation(this->TownSpawnTag, PlayerCharacter->GetActorLocation()));
     }
     this->Status = TEXT("Enter the dungeon with Enter / D-pad Up. Earn stones to build defenses.");
 }
 
-void AHBGameMode::CreateArena()
+bool AHBGameMode::DiscoverArenaActors()
 {
-    FActorSpawnParameters Parameters;
-    Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    AStaticMeshActor* Floor = this->GetWorld()->SpawnActor<AStaticMeshActor>(FVector(0.0f, 0.0f, -50.0f), FRotator::ZeroRotator, Parameters);
-    if (Floor)
+    AActor* GateActor = this->FindFirstTaggedActor(this->GateTag);
+    AActor* AnimaActor = this->FindFirstTaggedActor(this->AnimaTag);
+    this->Gate = Cast<AHBStructure>(GateActor);
+    this->Anima = Cast<AHBStructure>(AnimaActor);
+    this->FindTaggedActors(this->BuildSocketTag, this->BuildSockets);
+    this->FindTaggedActors(this->GreedCacheTag, this->GreedCaches);
+    this->FindTaggedActors(this->DungeonSpawnTag, this->DungeonSpawnPoints);
+    this->FindTaggedActors(this->WaveSpawnTag, this->WaveSpawnPoints);
+
+    const bool bValidGate = IsValid(this->Gate);
+    const bool bValidAnima = IsValid(this->Anima);
+    const bool bValidTownSpawn = IsValid(this->FindFirstTaggedActor(this->TownSpawnTag));
+    const bool bValidDungeonPlayerSpawn = IsValid(this->FindFirstTaggedActor(this->DungeonPlayerSpawnTag));
+    const bool bValidDefensePlayerSpawn = IsValid(this->FindFirstTaggedActor(this->DefensePlayerSpawnTag));
+    const bool bValidSockets = this->BuildSockets.Num() >= 1;
+    const bool bValidCaches = this->GreedCaches.Num() >= 3;
+    const bool bValidDungeonSpawns = !this->DungeonSpawnPoints.IsEmpty();
+    const bool bValidWaveSpawns = !this->WaveSpawnPoints.IsEmpty();
+    const bool bValidClasses = this->EnemyClass && this->TurretClass;
+    if (!bValidGate) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena missing BP_Gate actor tagged HB_Gate.")); }
+    if (!bValidAnima) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena missing BP_Anima actor tagged HB_Anima.")); }
+    if (!bValidTownSpawn) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena missing player anchor tagged HB_TownSpawn.")); }
+    if (!bValidDungeonPlayerSpawn) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena missing player anchor tagged HB_DungeonPlayerSpawn.")); }
+    if (!bValidDefensePlayerSpawn) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena missing player anchor tagged HB_DefensePlayerSpawn.")); }
+    if (!bValidSockets) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena needs at least one actor tagged HB_BuildSocket.")); }
+    if (!bValidCaches) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena needs three actors tagged HB_GreedCache.")); }
+    if (!bValidDungeonSpawns) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena needs an actor tagged HB_DungeonSpawn.")); }
+    if (!bValidWaveSpawns) { UE_LOG(LogHideInTheBox, Error, TEXT("DemoArena needs an actor tagged HB_WaveSpawn.")); }
+    if (!bValidClasses) { UE_LOG(LogHideInTheBox, Error, TEXT("Assign EnemyClass and TurretClass on BP_DemoGameMode.")); }
+    if (!(bValidGate && bValidAnima && bValidTownSpawn && bValidDungeonPlayerSpawn && bValidDefensePlayerSpawn && bValidSockets && bValidCaches && bValidDungeonSpawns && bValidWaveSpawns && bValidClasses))
     {
-        Floor->SetMobility(EComponentMobility::Movable);
-        Floor->GetStaticMeshComponent()->SetStaticMesh(this->CubeMesh);
-        if (this->FloorMaterial)
-        {
-            Floor->GetStaticMeshComponent()->SetMaterial(0, this->FloorMaterial);
-        }
-        Floor->SetActorScale3D(FVector(40.0f, 32.0f, 1.0f));
-        Floor->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
-        Floor->GetStaticMeshComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);
+        return false;
     }
-    // Low boundary walls keep direct movement inside the test arena.
-    for (int32 iIndex = 0; iIndex < 4; ++iIndex)
+
+    this->Gate->Configure(EHBStructure::EHBS_Gate);
+    this->Anima->Configure(EHBStructure::EHBS_Anima);
+    this->Gate->SetActorHiddenInGame(false);
+    this->Anima->SetActorHiddenInGame(false);
+    this->Turrets.SetNum(this->BuildSockets.Num());
+    this->ResetGreedCaches();
+    for (AActor* Cache : this->GreedCaches)
     {
-        const bool bAlongX = iIndex < 2;
-        const float fSign = iIndex % 2 == 0 ? -1.0f : 1.0f;
-        const FVector Position = bAlongX ? FVector(fSign * 2000.0f, 0.0f, 80.0f) : FVector(0.0f, fSign * 1600.0f, 80.0f);
-        AStaticMeshActor* Wall = this->GetWorld()->SpawnActor<AStaticMeshActor>(Position, FRotator::ZeroRotator, Parameters);
-        if (Wall)
+        if (IsValid(Cache))
         {
-            Wall->SetMobility(EComponentMobility::Movable);
-            Wall->GetStaticMeshComponent()->SetStaticMesh(this->CubeMesh);
-            if (this->WallMaterial)
+            Cache->SetActorHiddenInGame(true);
+        }
+    }
+    return true;
+}
+
+AActor* AHBGameMode::FindFirstTaggedActor(FName Tag) const
+{
+    TArray<AActor*> Actors;
+    this->FindTaggedActors(Tag, Actors);
+    return Actors.IsEmpty() ? nullptr : Actors[0];
+}
+
+void AHBGameMode::FindTaggedActors(FName Tag, TArray<AActor*>& OutActors) const
+{
+    OutActors.Reset();
+    if (Tag.IsNone() || !IsValid(this->GetWorld()))
+    {
+        return;
+    }
+    UGameplayStatics::GetAllActorsWithTag(this, Tag, OutActors);
+    for (int32 LeftIndex = 0; LeftIndex < OutActors.Num(); ++LeftIndex)
+    {
+        for (int32 RightIndex = LeftIndex + 1; RightIndex < OutActors.Num(); ++RightIndex)
+        {
+            if (OutActors[RightIndex]->GetName() < OutActors[LeftIndex]->GetName())
             {
-                Wall->GetStaticMeshComponent()->SetMaterial(0, this->WallMaterial);
-            }
-            Wall->SetActorScale3D(bAlongX ? FVector(0.5f, 32.0f, 2.0f) : FVector(40.0f, 0.5f, 2.0f));
-            Wall->GetStaticMeshComponent()->SetCollisionProfileName(TEXT("BlockAll"));
-            Wall->GetStaticMeshComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Ignore);
-        }
-    }
-    ADirectionalLight* Light = this->GetWorld()->SpawnActor<ADirectionalLight>(FVector(0.0f, 0.0f, 1000.0f), FRotator(-65.0f, -30.0f, 0.0f), Parameters);
-    if (Light)
-    {
-        Light->GetLightComponent()->SetIntensity(5.0f);
-    }
-    for (int32 iIndex = 0; iIndex < 4; ++iIndex)
-    {
-        const FVector Position(iIndex < 2 ? -1300.0f : 1300.0f, iIndex % 2 == 0 ? -1100.0f : 1100.0f, 350.0f);
-        APointLight* Accent = this->GetWorld()->SpawnActor<APointLight>(Position, FRotator::ZeroRotator, Parameters);
-        if (Accent)
-        {
-            UPointLightComponent* Component = Cast<UPointLightComponent>(Accent->GetLightComponent());
-            if (Component)
-            {
-                Component->SetMobility(EComponentMobility::Movable);
-                Component->SetIntensity(3500.0f);
-                Component->SetAttenuationRadius(1300.0f);
-                Component->SetCastShadows(false);
-                Component->SetLightColor(iIndex < 2 ? FLinearColor(0.1f, 0.55f, 1.0f) : FLinearColor(1.0f, 0.35f, 0.08f));
+                OutActors.Swap(LeftIndex, RightIndex);
             }
         }
     }
-    this->Gate = this->GetWorld()->SpawnActor<AHBStructure>(FVector(450.0f, 0.0f, 75.0f), FRotator::ZeroRotator, Parameters);
-    this->Anima = this->GetWorld()->SpawnActor<AHBStructure>(FVector(-1000.0f, 0.0f, 75.0f), FRotator::ZeroRotator, Parameters);
-    if (this->Gate)
-    {
-        this->Gate->SetTintMaterial(this->TintMaterial);
-        this->Gate->Configure(EHBStructure::EHBS_Gate);
-    }
-    if (this->Anima)
-    {
-        this->Anima->SetTintMaterial(this->TintMaterial);
-        this->Anima->Configure(EHBStructure::EHBS_Anima);
-    }
+}
+
+FVector AHBGameMode::GetTaggedLocation(FName Tag, const FVector& Fallback) const
+{
+    AActor* Anchor = this->FindFirstTaggedActor(Tag);
+    return IsValid(Anchor) ? Anchor->GetActorLocation() : Fallback;
 }
 
 AHBPlayerCharacter* AHBGameMode::GetPlayer() const
@@ -132,25 +128,31 @@ AHBPlayerCharacter* AHBGameMode::GetPlayer() const
 
 void AHBGameMode::Transition(EHBPhase NewPhase)
 {
-    UHBDebugSubsystem::Record(this, TEXT("System"), FString::Printf(TEXT("Phase %d -> %d"), static_cast<int32>(this->Phase), static_cast<int32>(NewPhase)));
+    const EHBPhase PreviousPhase = this->Phase;
+    if (PreviousPhase == NewPhase)
+    {
+        return;
+    }
+    UHBDebugSubsystem::Record(this, TEXT("System"), FString::Printf(TEXT("Phase %d -> %d"), static_cast<int32>(PreviousPhase), static_cast<int32>(NewPhase)));
     this->Phase = NewPhase;
+    this->OnPhaseChanged.Broadcast(PreviousPhase, NewPhase);
     AHBPlayerController* Controller = Cast<AHBPlayerController>(UGameplayStatics::GetPlayerController(this, 0));
     if (Controller)
     {
         Controller->ResetTransientInput();
     }
-    AHBPlayerCharacter* Player = this->GetPlayer();
-    if (Player)
+    AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
+    if (PlayerCharacter)
     {
-        Player->SetBuildMode(false);
+        PlayerCharacter->SetBuildMode(false);
     }
     UE_LOG(LogHideInTheBox, Log, TEXT("Phase=%s cycle=%d stones=%d threat=%d"), *this->GetPhaseLabel(), this->iCycle, this->iStones, this->iThreat);
 }
 
 void AHBGameMode::AdvancePhase()
 {
-    AHBPlayerCharacter* Player = this->GetPlayer();
-    if (!Player || !Player->IsAlive())
+    AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
+    if (!PlayerCharacter || !PlayerCharacter->IsAlive())
     {
         return;
     }
@@ -158,33 +160,33 @@ void AHBGameMode::AdvancePhase()
     {
         this->iThreat = 0;
         this->Transition(EHBPhase::EHBP_Dungeon);
-        Player->ResetForPhase(FVector(-700.0f, 0.0f, 100.0f));
+        PlayerCharacter->ResetForPhase(this->GetTaggedLocation(this->DungeonPlayerSpawnTag, PlayerCharacter->GetActorLocation()));
         this->Gate->SetActorHiddenInGame(true);
         this->Anima->SetActorHiddenInGame(true);
         for (AHBStructure* Turret : this->Turrets)
         {
-            if (Turret)
-            {
-                Turret->SetActorHiddenInGame(true);
-            }
+            if (IsValid(Turret)) { Turret->SetActorHiddenInGame(true); }
         }
         this->SpawnDungeon();
-        this->SpawnGreedChests();
-        this->Status = TEXT("Clear all six enemies. LMB attacks; RMB / B-pad uses Pulse (20 MP).");
+        this->ResetGreedCaches();
+        this->Status = TEXT("Clear all dungeon enemies. LMB attacks; RMB / B-pad uses Pulse (20 MP).");
     }
     else if (this->Phase == EHBPhase::EHBP_Dungeon && this->Enemies.IsEmpty())
     {
-        this->ClearGreedChests();
+        for (AActor* Cache : this->GreedCaches)
+        {
+            if (IsValid(Cache))
+            {
+                Cache->SetActorHiddenInGame(true);
+            }
+        }
         this->Transition(EHBPhase::EHBP_Return);
-        Player->ResetForPhase(FVector(-400.0f, 0.0f, 100.0f));
+        PlayerCharacter->ResetForPhase(this->GetTaggedLocation(this->TownSpawnTag, PlayerCharacter->GetActorLocation()));
         this->Gate->SetActorHiddenInGame(!this->Gate->IsAlive());
         this->Anima->SetActorHiddenInGame(false);
         for (AHBStructure* Turret : this->Turrets)
         {
-            if (Turret)
-            {
-                Turret->SetActorHiddenInGame(false);
-            }
+            if (IsValid(Turret)) { Turret->SetActorHiddenInGame(false); }
         }
         this->Status = TEXT("Return prep: B / D-pad Down builds (30 stones), R / D-pad Left repairs gate (20). Enter / D-pad Up starts defense.");
     }
@@ -197,24 +199,37 @@ void AHBGameMode::AdvancePhase()
     }
 }
 
-void AHBGameMode::SpawnEnemyAt(const FVector& Position)
+void AHBGameMode::SpawnEnemyAt(const FVector& Position, const FRotator& Rotation)
 {
+    if (!this->EnemyClass || !IsValid(this->GetWorld()))
+    {
+        return;
+    }
     FActorSpawnParameters Parameters;
     Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-    this->GetWorld()->SpawnActor<AHBEnemyCharacter>(this->EnemyClass, Position, FRotator::ZeroRotator, Parameters);
+    AHBEnemyCharacter* SpawnedEnemy = this->GetWorld()->SpawnActor<AHBEnemyCharacter>(this->EnemyClass, Position, Rotation, Parameters);
+    if (!IsValid(SpawnedEnemy))
+    {
+        UE_LOG(LogHideInTheBox, Warning, TEXT("Enemy spawn failed at %s."), *Position.ToString());
+    }
 }
 
 void AHBGameMode::SpawnDungeon()
 {
-    for (int32 iIndex = 0; iIndex < this->iDungeonEnemyCount; ++iIndex)
+    const int32 PointCount = this->DungeonSpawnPoints.Num();
+    if (PointCount < 1) { return; }
+    for (int32 Index = 0; Index < this->iDungeonEnemyCount; ++Index)
     {
-        this->SpawnEnemyAt(FVector(200.0f + (iIndex / 3) * 400.0f, (iIndex % 3 - 1) * 350.0f, 100.0f));
+        AActor* Point = this->DungeonSpawnPoints[Index % PointCount];
+        if (!IsValid(Point)) { continue; }
+        const FVector Offset(0.0f, 120.0f * static_cast<float>(Index / PointCount), 0.0f);
+        this->SpawnEnemyAt(Point->GetActorLocation() + Offset, Point->GetActorRotation());
     }
 }
 
 void AHBGameMode::RegisterEnemy(AHBEnemyCharacter* Enemy)
 {
-    this->Enemies.AddUnique(Enemy);
+    if (IsValid(Enemy)) { this->Enemies.AddUnique(Enemy); }
 }
 
 void AHBGameMode::UnregisterEnemy(AHBEnemyCharacter* Enemy)
@@ -224,11 +239,13 @@ void AHBGameMode::UnregisterEnemy(AHBEnemyCharacter* Enemy)
 
 void AHBGameMode::NotifyEnemyKilled(AHBEnemyCharacter* Enemy)
 {
-    if (this->Phase == EHBPhase::EHBP_Dungeon)
+    const EHBPhase PhaseAtDefeat = this->Phase;
+    if (PhaseAtDefeat == EHBPhase::EHBP_Dungeon)
     {
         this->iStones += 15;
         ++this->iThreat;
     }
+    this->OnEnemyDefeated.Broadcast(Enemy, PhaseAtDefeat);
 }
 
 void AHBGameMode::SpawnWave()
@@ -240,11 +257,17 @@ void AHBGameMode::SpawnWave()
     ++this->iWave;
     this->bWaveActive = true;
     this->fWaveSeconds = this->fWaveDuration;
-    const int32 iCount = HBRules::GetWaveEnemyCount(this->iWave, this->iThreat);
-    for (int32 iIndex = 0; iIndex < iCount; ++iIndex)
+    const int32 EnemyCount = HBRules::GetWaveEnemyCount(this->iWave, this->iThreat);
+    const int32 PointCount = this->WaveSpawnPoints.Num();
+    for (int32 Index = 0; Index < EnemyCount && PointCount > 0; ++Index)
     {
-        this->SpawnEnemyAt(FVector(1250.0f + (iIndex / 5) * 150.0f, (iIndex % 5 - 2) * 180.0f, 100.0f));
+        AActor* Point = this->WaveSpawnPoints[Index % PointCount];
+        if (!IsValid(Point)) { continue; }
+        const int32 Ring = Index / PointCount;
+        const FVector Offset(150.0f * static_cast<float>(Ring), 110.0f * static_cast<float>((Index % 3) - 1), 0.0f);
+        this->SpawnEnemyAt(Point->GetActorLocation() + Offset, Point->GetActorRotation());
     }
+    this->OnWaveStarted.Broadcast(this->iWave, EnemyCount);
     this->Status = TEXT("Defend Gate then Anima. Building and repair stay locked between all five waves.");
 }
 
@@ -257,8 +280,11 @@ void AHBGameMode::MonitorWave()
     this->fWaveSeconds = FMath::Max(0.0f, this->fWaveSeconds - 0.25f);
     if (this->Enemies.IsEmpty() || this->fWaveSeconds <= 0.0f)
     {
+        const bool bTimedOut = !this->Enemies.IsEmpty() && this->fWaveSeconds <= 0.0f;
+        const int32 ResolvedWave = this->iWave;
         this->bWaveActive = false;
         this->ClearEnemies();
+        this->OnWaveResolved.Broadcast(ResolvedWave, bTimedOut);
         if (this->iWave >= this->iWavesPerDefense)
         {
             this->CompleteDefense();
@@ -278,10 +304,10 @@ void AHBGameMode::CompleteDefense()
     this->iStones += 30 + this->iThreat * 2;
     ++this->iCycle;
     this->Transition(EHBPhase::EHBP_Town);
-    AHBPlayerCharacter* Player = this->GetPlayer();
-    if (Player)
+    AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
+    if (PlayerCharacter)
     {
-        Player->ResetForPhase(FVector(-400.0f, 0.0f, 100.0f));
+        PlayerCharacter->ResetForPhase(this->GetTaggedLocation(this->TownSpawnTag, PlayerCharacter->GetActorLocation()));
     }
     this->Status = TEXT("Defense survived! Reward credited. Gate damage persists: repair before the next cycle.");
 }
@@ -291,10 +317,7 @@ void AHBGameMode::ClearEnemies()
     const TArray<TWeakObjectPtr<AHBEnemyCharacter>> Snapshot = this->Enemies;
     for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Snapshot)
     {
-        if (Entry.IsValid())
-        {
-            Entry->Destroy();
-        }
+        if (Entry.IsValid()) { Entry->Destroy(); }
     }
     this->Enemies.Reset();
 }
@@ -304,23 +327,20 @@ AHBStructure* AHBGameMode::GetDefenseTarget() const
     return this->Gate && this->Gate->IsAlive() ? this->Gate.Get() : this->Anima.Get();
 }
 
-AHBEnemyCharacter* AHBGameMode::FindEnemy(const FVector& Origin, const FVector& Aim, float fRange) const
+AHBEnemyCharacter* AHBGameMode::FindEnemy(const FVector& Origin, const FVector& Aim, float Range) const
 {
     AHBEnemyCharacter* Best = nullptr;
-    float fBestDistance = FMath::Square(fRange);
+    float BestDistance = FMath::Square(Range);
     for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : this->Enemies)
     {
         AHBEnemyCharacter* Enemy = Entry.Get();
-        if (!IsValid(Enemy) || !Enemy->IsAlive())
-        {
-            continue;
-        }
+        if (!IsValid(Enemy) || !Enemy->IsAlive()) { continue; }
         const FVector Delta = Enemy->GetActorLocation() - Origin;
-        const float fDistance = Delta.SizeSquared2D();
-        if (fDistance < fBestDistance && (Aim.IsNearlyZero() || FVector::DotProduct(Delta.GetSafeNormal2D(), Aim.GetSafeNormal2D()) >= 0.4f))
+        const float Distance = Delta.SizeSquared2D();
+        if (Distance < BestDistance && (Aim.IsNearlyZero() || FVector::DotProduct(Delta.GetSafeNormal2D(), Aim.GetSafeNormal2D()) >= 0.4f))
         {
             Best = Enemy;
-            fBestDistance = fDistance;
+            BestDistance = Distance;
         }
     }
     return Best;
@@ -340,20 +360,20 @@ void AHBGameMode::HandlePlayerDeath()
 
 void AHBGameMode::RespawnPlayer()
 {
-    if (this->Phase != EHBPhase::EHBP_Defense)
+    if (this->Phase != EHBPhase::EHBP_Defense) { return; }
+    AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
+    if (PlayerCharacter)
     {
-        return;
-    }
-    AHBPlayerCharacter* Player = this->GetPlayer();
-    if (Player)
-    {
-        Player->ResetForPhase(FVector(-700.0f, 0.0f, 100.0f));
+        PlayerCharacter->ResetForPhase(this->GetTaggedLocation(this->DefensePlayerSpawnTag, PlayerCharacter->GetActorLocation()));
     }
 }
 
 void AHBGameMode::EndRun()
 {
-    this->ClearGreedChests();
+    for (AActor* Cache : this->GreedCaches)
+    {
+        if (IsValid(Cache)) { Cache->SetActorHiddenInGame(true); }
+    }
     this->Transition(EHBPhase::EHBP_GameOver);
     this->GetWorldTimerManager().ClearTimer(this->WaveTimer);
     this->GetWorldTimerManager().ClearTimer(this->BreakTimer);
@@ -364,48 +384,42 @@ void AHBGameMode::EndRun()
 
 void AHBGameMode::ToggleBuildMode()
 {
-    if (this->Phase != EHBPhase::EHBP_Town && this->Phase != EHBPhase::EHBP_Return)
-    {
-        return;
-    }
-    AHBPlayerCharacter* Player = this->GetPlayer();
-    if (Player)
-    {
-        Player->SetBuildMode(!Player->IsBuilding());
-    }
+    if (this->Phase != EHBPhase::EHBP_Town && this->Phase != EHBPhase::EHBP_Return) { return; }
+    AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
+    if (PlayerCharacter) { PlayerCharacter->SetBuildMode(!PlayerCharacter->IsBuilding()); }
 }
 
 FVector AHBGameMode::GetBuildSocket() const
 {
-    return FVector(this->iBuildSocket < 2 ? 100.0f : -500.0f, this->iBuildSocket % 2 == 0 ? -350.0f : 350.0f, 90.0f);
+    return this->BuildSockets.IsValidIndex(this->iBuildSocket) && IsValid(this->BuildSockets[this->iBuildSocket])
+        ? this->BuildSockets[this->iBuildSocket]->GetActorLocation() : FVector::ZeroVector;
 }
 
 bool AHBGameMode::IsBuildSocketOccupied() const
 {
-    return IsValid(this->Turrets[this->iBuildSocket]);
+    return this->Turrets.IsValidIndex(this->iBuildSocket) && IsValid(this->Turrets[this->iBuildSocket]);
 }
 
 void AHBGameMode::CycleBuildSocket()
 {
-    this->iBuildSocket = (this->iBuildSocket + 1) % this->Turrets.Num();
+    if (this->BuildSockets.IsEmpty()) { return; }
+    this->iBuildSocket = (this->iBuildSocket + 1) % this->BuildSockets.Num();
 }
 
 void AHBGameMode::ConfirmBuild()
 {
-    AHBPlayerCharacter* Player = this->GetPlayer();
-    if (!Player || !Player->IsBuilding() || (this->Phase != EHBPhase::EHBP_Town && this->Phase != EHBPhase::EHBP_Return))
-    {
-        return;
-    }
+    AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
+    if (!PlayerCharacter || !PlayerCharacter->IsBuilding() || (this->Phase != EHBPhase::EHBP_Town && this->Phase != EHBPhase::EHBP_Return)) { return; }
     if (this->iStones < 30 || this->IsBuildSocketOccupied())
     {
         this->Status = TEXT("Need 30 stones and an empty socket. Tab / D-pad Right selects the next socket.");
         return;
     }
-    AHBStructure* Turret = this->GetWorld()->SpawnActor<AHBStructure>(this->GetBuildSocket(), FRotator::ZeroRotator);
-    if (Turret)
+    FActorSpawnParameters Parameters;
+    Parameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+    AHBStructure* Turret = this->GetWorld()->SpawnActor<AHBStructure>(this->TurretClass, this->GetBuildSocket(), FRotator::ZeroRotator, Parameters);
+    if (IsValid(Turret))
     {
-        Turret->SetTintMaterial(this->TintMaterial);
         Turret->Configure(EHBStructure::EHBS_Turret);
         this->Turrets[this->iBuildSocket] = Turret;
         this->iStones -= 30;
@@ -415,10 +429,7 @@ void AHBGameMode::ConfirmBuild()
 
 void AHBGameMode::RepairGate()
 {
-    if ((this->Phase != EHBPhase::EHBP_Town && this->Phase != EHBPhase::EHBP_Return) || !this->Gate || !this->Gate->NeedsRepair())
-    {
-        return;
-    }
+    if ((this->Phase != EHBPhase::EHBP_Town && this->Phase != EHBPhase::EHBP_Return) || !IsValid(this->Gate) || !this->Gate->NeedsRepair()) { return; }
     if (this->iStones < 20)
     {
         this->Status = TEXT("Gate repair needs 20 stones.");
@@ -429,8 +440,8 @@ void AHBGameMode::RepairGate()
     this->Status = TEXT("Gate repaired.");
 }
 
-float AHBGameMode::GetGateHealth() const { return this->Gate ? this->Gate->GetHealth() : 0.0f; }
-float AHBGameMode::GetCoreHealth() const { return this->Anima ? this->Anima->GetHealth() : 0.0f; }
+float AHBGameMode::GetGateHealth() const { return IsValid(this->Gate) ? this->Gate->GetHealth() : 0.0f; }
+float AHBGameMode::GetCoreHealth() const { return IsValid(this->Anima) ? this->Anima->GetHealth() : 0.0f; }
 
 FString AHBGameMode::GetPhaseLabel() const
 {
@@ -450,63 +461,32 @@ void AHBGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
     Super::EndPlay(EndPlayReason);
 }
 
-FVector AHBGameMode::GetGreedPosition(int32 iIndex) const
+void AHBGameMode::ResetGreedCaches()
 {
-    const FVector Positions[] = { FVector(900.0f, -1000.0f, 45.0f), FVector(1500.0f, 0.0f, 45.0f), FVector(900.0f, 1000.0f, 45.0f) };
-    return iIndex >= 0 && iIndex < 3 ? Positions[iIndex] : FVector::ZeroVector;
-}
-
-void AHBGameMode::SpawnGreedChests()
-{
-    this->ClearGreedChests();
     this->Greed.Reset();
-    for (int32 iIndex = 0; iIndex < 3; ++iIndex)
+    for (int32 Index = 0; Index < this->GreedCaches.Num(); ++Index)
     {
-        AStaticMeshActor* Chest = this->GetWorld()->SpawnActor<AStaticMeshActor>(this->GetGreedPosition(iIndex), FRotator::ZeroRotator);
-        this->GreedChests.Add(Chest);
-        if (Chest)
+        AActor* Cache = this->GreedCaches[Index];
+        if (IsValid(Cache))
         {
-            Chest->SetMobility(EComponentMobility::Movable);
-            Chest->GetStaticMeshComponent()->SetStaticMesh(this->CubeMesh);
-            Chest->SetActorScale3D(FVector(0.9f, 0.65f, 0.6f));
-            Chest->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-            if (this->TintMaterial)
-            {
-                Chest->GetStaticMeshComponent()->SetMaterial(0, this->TintMaterial);
-            }
-            UMaterialInstanceDynamic* Material = Chest->GetStaticMeshComponent()->CreateAndSetMaterialInstanceDynamic(0);
-            if (Material) { Material->SetVectorParameterValue(TEXT("Color"), FLinearColor(1.0f, 0.6f, 0.08f)); }
+            const bool bAvailable = Index < 3;
+            Cache->SetActorHiddenInGame(!bAvailable);
         }
     }
-}
-
-void AHBGameMode::ClearGreedChests()
-{
-    for (AStaticMeshActor* Chest : this->GreedChests)
-    {
-        if (IsValid(Chest))
-        {
-            Chest->Destroy();
-        }
-    }
-    this->GreedChests.Reset();
 }
 
 void AHBGameMode::ClaimNearbyGreed()
 {
-    AHBPlayerCharacter* Player = this->GetPlayer();
-    if (this->Phase != EHBPhase::EHBP_Dungeon || !Player || !Player->IsAlive() || Player->IsAttacking() || Player->IsDodging())
+    AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
+    if (this->Phase != EHBPhase::EHBP_Dungeon || !PlayerCharacter || !PlayerCharacter->IsAlive() || PlayerCharacter->IsAttacking() || PlayerCharacter->IsDodging()) { return; }
+    for (int32 Index = 0; Index < 3; ++Index)
     {
-        return;
-    }
-    for (int32 iIndex = 0; iIndex < 3; ++iIndex)
-    {
-        if (this->GreedChests.IsValidIndex(iIndex) && IsValid(this->GreedChests[iIndex]) && FVector::DistSquaredXY(Player->GetActorLocation(), this->GetGreedPosition(iIndex)) <= FMath::Square(180.0f))
+        AActor* Cache = this->GreedCaches.IsValidIndex(Index) ? this->GreedCaches[Index] : nullptr;
+        if (IsValid(Cache) && !Cache->IsHidden() && FVector::DistSquaredXY(PlayerCharacter->GetActorLocation(), Cache->GetActorLocation()) <= FMath::Square(180.0f))
         {
-            if (this->Greed.Claim(iIndex, this->iStones, this->iThreat))
+            if (this->Greed.Claim(Index, this->iStones, this->iThreat))
             {
-                this->GreedChests[iIndex]->Destroy();
-                this->GreedChests[iIndex] = nullptr;
+                Cache->SetActorHiddenInGame(true);
                 this->Status = TEXT("Optional cache claimed: +30 stones, +3 Threat. Next defense gains one enemy per wave.");
                 return;
             }

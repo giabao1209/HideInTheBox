@@ -3,11 +3,8 @@
 #include "HBGameMode.h"
 #include "HBEnemyCharacter.h"
 #include "Components/StaticMeshComponent.h"
-#include "Materials/MaterialInstanceDynamic.h"
 #include "GameFramework/DamageType.h"
 #include "Kismet/GameplayStatics.h"
-#include "UObject/ConstructorHelpers.h"
-#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -18,15 +15,6 @@ AHBStructure::AHBStructure()
     this->SetRootComponent(this->Mesh);
     // Arena structures are objectives, not the GDD weighted navigation obstacles.
     this->Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereAsset(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderAsset(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-    this->SphereMesh = SphereAsset.Object;
-    this->CylinderMesh = CylinderAsset.Object;
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> MeshAsset(TEXT("/Engine/BasicShapes/Cube.Cube"));
-    if (MeshAsset.Succeeded())
-    {
-        this->Mesh->SetStaticMesh(MeshAsset.Object);
-    }
 }
 
 void AHBStructure::BeginPlay()
@@ -37,25 +25,11 @@ void AHBStructure::BeginPlay()
 
 void AHBStructure::Configure(EHBStructure NewKind)
 {
+    this->GetWorldTimerManager().ClearTimer(this->FireTimer);
     this->Kind = NewKind;
-    const bool bTurret = this->Kind == EHBStructure::EHBS_Turret;
-    if (this->Kind == EHBStructure::EHBS_Anima && this->SphereMesh)
-    {
-        this->Mesh->SetStaticMesh(this->SphereMesh);
-    }
-    if (bTurret && this->CylinderMesh)
-    {
-        this->Mesh->SetStaticMesh(this->CylinderMesh);
-    }
     this->fMaxHealth = this->Kind == EHBStructure::EHBS_Anima ? 250.0f : 350.0f;
     this->fHealth = this->fMaxHealth;
-    this->Mesh->SetWorldScale3D(bTurret ? FVector(0.8f, 0.8f, 1.8f) : FVector(1.5f, 2.5f, 1.5f));
-    UMaterialInstanceDynamic* Material = this->Mesh->CreateAndSetMaterialInstanceDynamic(0);
-    if (Material)
-    {
-        Material->SetVectorParameterValue(TEXT("Color"), bTurret ? FLinearColor::Yellow : FLinearColor(0.2f, 0.8f, 0.9f));
-    }
-    if (bTurret)
+    if (this->Kind == EHBStructure::EHBS_Turret)
     {
         this->GetWorldTimerManager().SetTimer(this->FireTimer, this, &AHBStructure::Fire, 0.7f, true);
     }
