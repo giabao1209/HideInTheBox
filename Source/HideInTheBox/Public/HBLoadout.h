@@ -58,6 +58,7 @@ public:
     UFUNCTION(BlueprintPure, Category="Loadout") FHBAbilitySpec GetSlotSpec(int32 iSlot) const;
     UFUNCTION(BlueprintPure, Category="Loadout") float GetSlotCooldown(int32 iSlot) const;
     UFUNCTION(BlueprintPure, Category="Resources") float GetMana() const { return this->fMana; }
+    UFUNCTION(BlueprintPure, Category="Resources") float GetMaxMana() const { return this->Definition ? FMath::Max(1.0f, this->Definition->fMaxMana) : 100.0f; }
     float GetManaFraction() const { return this->Definition ? FMath::Clamp(this->fMana / FMath::Max(1.0f, this->Definition->fMaxMana), 0.0f, 1.0f) : 0.0f; }
     void AppendDebugChecks(TArray<FString>& Checks) const;
     void Regenerate(float fDeltaSeconds);

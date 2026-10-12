@@ -7,6 +7,7 @@
 #include "HBInputSave.h"
 #include "HBLoadout.h"
 #include "HBHUD.h"
+#include "HBCommonGameplayHUDWidget.h"
 #include "HideInTheBox.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -150,6 +151,13 @@ void AHBPlayerController::BeginPlay()
     FInputModeGameAndUI Mode;
     Mode.SetHideCursorDuringCapture(false);
     this->SetInputMode(Mode);
+    this->GameplayHUD = CreateWidget<UHBCommonGameplayHUDWidget>(this, UHBCommonGameplayHUDWidget::StaticClass());
+    if (this->GameplayHUD)
+    {
+        this->GameplayHUD->AddToViewport(10);
+        this->GameplayHUD->RefreshFromGame();
+        this->GetWorldTimerManager().SetTimer(this->GameplayHUDRefreshTimer, this, &AHBPlayerController::RefreshGameplayHUD, 0.1f, true);
+    }
     FActorSpawnParameters Parameters;
     Parameters.Owner = this;
     this->BuildPreview = this->GetWorld()->SpawnActor<AHBIndicator>(AHBIndicator::StaticClass(), FTransform::Identity, Parameters);
@@ -170,6 +178,14 @@ void AHBPlayerController::SetInputFamily(bool bFromGamepad)
             PlayerCharacter->CancelCommands();
         }
         this->bGamepad = bFromGamepad;
+    }
+}
+
+void AHBPlayerController::RefreshGameplayHUD()
+{
+    if (this->GameplayHUD)
+    {
+        this->GameplayHUD->RefreshFromGame();
     }
 }
 
@@ -202,8 +218,22 @@ void AHBPlayerController::HandleAim(const FInputActionValue& Value)
 
 void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot, bool bFromGamepad)
 {
+    this->ActivateSkillSlot(iSlot, bFromGamepad, false);
+}
+
+void AHBPlayerController::UseSkillFromUI(int32 SlotIndex)
+{
+    this->ActivateSkillSlot(SlotIndex, false, true);
+}
+
+void AHBPlayerController::ActivateSkillSlot(int32 iSlot, bool bFromGamepad, bool bFromUI)
+{
+    if (iSlot < 0 || iSlot >= HBRuleCore::iSlotCount)
+    {
+        return;
+    }
     UHBDebugSubsystem::Record(this, TEXT("Input"), FString::Printf(TEXT("Slot %d from %s paused=%d neutralWait=%d"), iSlot, bFromGamepad ? TEXT("Gamepad") : TEXT("Mouse/KB"), this->IsPaused(), this->bAwaitNeutral));
-    if (this->IsPaused() || this->bAwaitNeutral)
+    if (this->IsPaused() || this->bAwaitNeutral || (!bFromGamepad && !bFromUI && this->GameplayHUD && this->GameplayHUD->IsPointerOverSkillBar() && this->GetSlotKey(iSlot, false).IsMouseButton()))
     {
         return;
     }
@@ -216,7 +246,7 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
     this->SetInputFamily(bFromGamepad);
     if (PlayerCharacter->IsBuilding())
     {
-        if (iSlot == 0)
+        if (iSlot == 0 && !bFromUI)
         {
             Mode->ConfirmBuild();
         }
@@ -227,7 +257,8 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
     AHBEnemyCharacter* Target = nullptr;
     FVector AimPoint = PlayerCharacter->GetActorLocation();
     bool bInPlace = false;
-    if (bFromGamepad)
+    // HUD cards cast toward the last world aim, not the floor behind the button.
+    if (bFromGamepad || bFromUI || (this->GameplayHUD && this->GameplayHUD->IsPointerOverSkillBar()))
     {
         const FVector Aim = PlayerCharacter->GetAimDirection();
         Target = Mode->FindEnemy(PlayerCharacter->GetActorLocation(), Aim, Loadout->GetSlotSpec(iSlot).fRange + 500.0f);
@@ -261,7 +292,17 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
         }
     }
     const EHBActionResult Result = Loadout->TryActivateSlot(iSlot, Target, AimPoint, bInPlace);
-    this->LastActionResult = FString::Printf(TEXT("Slot %d: %s"), iSlot + 1, *UEnum::GetValueAsString(Result));
+    FString ResultLabel;
+    switch (Result)
+    {
+        case EHBActionResult::EHBAR_Accepted: ResultLabel = TEXT("Used"); break;
+        case EHBActionResult::EHBAR_Cooldown: ResultLabel = TEXT("On cooldown"); break;
+        case EHBActionResult::EHBAR_NoMana: ResultLabel = TEXT("Not enough mana"); break;
+        case EHBActionResult::EHBAR_InvalidTarget: ResultLabel = Ability == EHBAbility::EHBA_Mend ? TEXT("Health already full") : TEXT("Needs a valid target in range"); break;
+        default: ResultLabel = TEXT("Cannot use now"); break;
+    }
+    this->LastActionResult = FString::Printf(TEXT("%s: %s"), *Loadout->GetSlotSpec(iSlot).Name.ToString(), *ResultLabel);
+    this->RefreshGameplayHUD();
 }
 
 void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iAction, bool bFromGamepad)
@@ -279,6 +320,7 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         const bool bPaused = this->IsPaused();
         this->ResetTransientInput();
         this->SetPause(!bPaused);
+        this->RefreshGameplayHUD();
         return;
     }
     if (this->bAwaitNeutral || this->IsPaused())
@@ -374,7 +416,7 @@ void AHBPlayerController::PlayerTick(float fDeltaSeconds)
     {
         PlayerCharacter->SetAimInput(this->AimInput);
     }
-    else
+    else if (!this->GameplayHUD || !this->GameplayHUD->IsPointerOverSkillBar())
     {
         FHitResult Hit;
         if (this->GetHitResultUnderCursor(ECC_Visibility, false, Hit))
@@ -444,6 +486,7 @@ void AHBPlayerController::OnDeviceConnectionChanged(EInputDeviceConnectionState 
     {
         this->FlushPressedKeys();
         this->SetPause(true);
+        this->RefreshGameplayHUD();
     }
 }
 
@@ -597,6 +640,12 @@ void AHBPlayerController::HBCameraYaw(float Yaw)
 void AHBPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     this->GetWorldTimerManager().ClearTimer(this->DebugCheckTimer);
+    this->GetWorldTimerManager().ClearTimer(this->GameplayHUDRefreshTimer);
+    if (this->GameplayHUD)
+    {
+        this->GameplayHUD->RemoveFromParent();
+        this->GameplayHUD = nullptr;
+    }
     IPlatformInputDeviceMapper::Get().GetOnInputDeviceConnectionChange().Remove(this->ConnectionHandle);
     this->CleanupMappingsAndBindings();
     if (IsValid(this->BuildPreview))

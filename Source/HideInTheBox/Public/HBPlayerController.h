@@ -10,6 +10,7 @@ class UInputAction;
 class UInputMappingContext;
 class UEnhancedInputComponent;
 class AHBIndicator;
+class UHBCommonGameplayHUDWidget;
 
 UCLASS()
 class HIDEINTHEBOX_API AHBPlayerController : public APlayerController
@@ -27,6 +28,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="Input") bool RebindSlotKey(int32 iSlot, FKey NewKey, bool bForGamepad);
     UFUNCTION(BlueprintCallable, Category="Input") bool SaveBindings();
     UFUNCTION(BlueprintPure, Category="Input") FKey GetSlotKey(int32 iSlot, bool bForGamepad) const;
+    UFUNCTION(BlueprintCallable, Category="Skills") void UseSkillFromUI(int32 SlotIndex);
     UFUNCTION(Exec) void HBDebug();
     UFUNCTION(Exec) void HBDebugClear();
     UFUNCTION(Exec) void HBPerfClear();
@@ -48,6 +50,8 @@ protected:
 private:
     void HandleUtility(const FInputActionValue& Value, int32 iAction, bool bFromGamepad);
     void HandleSlot(const FInputActionValue& Value, int32 iSlot, bool bFromGamepad);
+    void ActivateSkillSlot(int32 iSlot, bool bFromGamepad, bool bFromUI);
+    void RefreshGameplayHUD();
     void HandleMove(const FInputActionValue& Value);
     void HandleKeyboardMove(const FInputActionValue& Value);
     void HandleAim(const FInputActionValue& Value);
@@ -69,6 +73,8 @@ private:
     UPROPERTY(Transient) TObjectPtr<AHBIndicator> BuildPreview;
     TWeakObjectPtr<UEnhancedInputComponent> BoundInput;
     TArray<uint32> BindingHandles;
+    UPROPERTY(Transient) TObjectPtr<UHBCommonGameplayHUDWidget> GameplayHUD;
+    FTimerHandle GameplayHUDRefreshTimer;
     FTimerHandle DebugCheckTimer;
     FDelegateHandle ConnectionHandle;
     FVector2D MoveInput = FVector2D::ZeroVector;
