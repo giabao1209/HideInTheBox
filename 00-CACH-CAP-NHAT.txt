@@ -1,0 +1,8 @@
+CACH CAP NHAT PROJECT HIDEINTHEBOX
+
+1. Dong Unreal Editor.
+2. Giai nen ZIP nay truc tiep vao thu muc goc project dang co, giu nguyen cau truc thu muc va chon Replace/Overwrite khi duoc hoi.
+3. ZIP nay chi chua 4 file C++ va 4 file huong dan. Content, map, asset, Config, Binaries, Intermediate va Saved trong project cua ban khong bi dong vao hay xoa.
+4. Build lai target HideInTheBoxEditor bang UE 5.7.
+
+Neu da tao map/asset trong Content, chung van nam trong project cu. Hay dung Unreal Editor 5.7 cho ban source nay.
