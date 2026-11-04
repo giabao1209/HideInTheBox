@@ -18,6 +18,11 @@ require((root / f"Source/{module}/{module}.Build.cs").is_file(), "Missing runtim
 for target in [module, module + "Editor"]:
     require((root / f"Source/{target}.Target.cs").is_file(), f"Missing target {target}")
 require(any(p["Name"] == "EnhancedInput" and p["Enabled"] for p in project["Plugins"]), "EnhancedInput not enabled")
+for gas_plugin in ("GameplayAbilities", "GameplayTags", "GameplayTasks"):
+    require(any(p["Name"] == gas_plugin and p["Enabled"] for p in project["Plugins"]), f"{gas_plugin} not enabled")
+for gas_source in ("HBAttributes.h", "HBEffects.h", "HBGameplayAbility.h"):
+    require((root / "Source" / module / "Public" / gas_source).is_file(), f"Missing GAS source {gas_source}")
+require((root / "Config/DefaultGameplayTags.ini").is_file(), "Missing GAS cooldown tag config")
 source = root / "Source" / module
 headers = list(source.rglob("*.h"))
 header_names = {p.name for p in headers}
