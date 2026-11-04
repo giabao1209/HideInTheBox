@@ -10,7 +10,7 @@ FGameplayTag HBGetCooldownTag(EHBAbility Ability)
         TEXT("Cooldown.Basic"), TEXT("Cooldown.Pulse"), TEXT("Cooldown.Dodge"),
         TEXT("Cooldown.Guard"), TEXT("Cooldown.Mend"), TEXT("Cooldown.Bolt")
     };
-    const int32 Index = FMath::Clamp(static_cast<int32>(Ability), 0, UE_ARRAY_COUNT(Names) - 1);
+    const int32 Index = FMath::Clamp(static_cast<int32>(Ability), 0, HBRuleCore::iAbilityCount - 1);
     return FGameplayTag::RequestGameplayTag(Names[Index]);
 }
 
@@ -54,7 +54,7 @@ const FGameplayTagContainer* UHBGameplayAbility::GetCooldownTags() const
         FGameplayTagContainer(HBGetCooldownTag(EHBAbility::EHBA_Mend)),
         FGameplayTagContainer(HBGetCooldownTag(EHBAbility::EHBA_Bolt))
     };
-    return &Tags[FMath::Clamp(static_cast<int32>(AbilityKind), 0, UE_ARRAY_COUNT(Tags) - 1)];
+    return &Tags[FMath::Clamp(static_cast<int32>(AbilityKind), 0, HBRuleCore::iAbilityCount - 1)];
 }
 
 void UHBGameplayAbility::ApplyCost(const FGameplayAbilitySpecHandle Handle,

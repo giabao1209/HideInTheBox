@@ -34,12 +34,18 @@ protected:
     EHBAbility AbilityKind = EHBAbility::EHBA_Basic;
 };
 
-UCLASS() class HIDEINTHEBOX_API UHBGA_Basic : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Basic(); };
-UCLASS() class HIDEINTHEBOX_API UHBGA_Pulse : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Pulse(); };
-UCLASS() class HIDEINTHEBOX_API UHBGA_Dodge : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Dodge(); };
-UCLASS() class HIDEINTHEBOX_API UHBGA_Guard : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Guard(); };
-UCLASS() class HIDEINTHEBOX_API UHBGA_Mend : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Mend(); };
-UCLASS() class HIDEINTHEBOX_API UHBGA_Bolt : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Bolt(); };
+UCLASS()
+class HIDEINTHEBOX_API UHBGA_Basic : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Basic(); };
+UCLASS()
+class HIDEINTHEBOX_API UHBGA_Pulse : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Pulse(); };
+UCLASS()
+class HIDEINTHEBOX_API UHBGA_Dodge : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Dodge(); };
+UCLASS()
+class HIDEINTHEBOX_API UHBGA_Guard : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Guard(); };
+UCLASS()
+class HIDEINTHEBOX_API UHBGA_Mend : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Mend(); };
+UCLASS()
+class HIDEINTHEBOX_API UHBGA_Bolt : public UHBGameplayAbility { GENERATED_BODY() public: UHBGA_Bolt(); };
 
 /** Tags registered in Config/DefaultGameplayTags.ini. Shared across reassigned slots. */
 HIDEINTHEBOX_API FGameplayTag HBGetCooldownTag(EHBAbility Ability);
