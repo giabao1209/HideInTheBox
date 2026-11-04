@@ -21,6 +21,20 @@ public:
     virtual void Tick(float fDeltaSeconds) override;
     virtual void UnPossessed() override;
     void AppendDebugChecks(TArray<FString>& Checks) const;
+    /** Synchronous single-player GAS activation; existing input/slot system is preserved. */
+    bool TryActivateGASAction(EHBAbility Ability, const FHBAbilitySpec& Spec, AHBEnemyCharacter* Target, const FVector& AimPoint, bool bInPlace);
+    bool CanExecutePendingGAS(EHBAbility Ability) const;
+    bool ExecutePendingGAS(EHBAbility Ability);
+    float GetPendingGASCost(EHBAbility Ability) const;
+    float GetPendingGASCooldown(EHBAbility Ability) const;
+    void SetLastGASActivationResult(bool bAccepted) { bLastGASActivationAccepted = bAccepted; }
+    float GetGASMana() const;
+    float GetGASMaxMana() const;
+    void ApplyGASManaDelta(float Delta);
+    void ApplyGASCooldown(EHBAbility Ability, float Duration);
+    float GetGASCooldown(EHBAbility Ability) const;
+    void ResetGASMana(float MaxMana);
+    void ClearGASCooldowns();
     void RequestMove(const FVector& Position);
     void RequestAttack(AHBEnemyCharacter* Target, bool bInPlace);
     void SetDirectInput(const FVector2D& Input);
@@ -67,6 +81,13 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category="Combat", meta=(ClampMin="0.3")) float fFallbackDuration = 0.55f;
     UPROPERTY(EditDefaultsOnly, Category="Movement", meta=(ClampMin="1")) float fArrivalDistance = 30.0f;
 private:
+    bool bGASContextReady = false;
+    bool bLastGASActivationAccepted = false;
+    EHBAbility PendingGASAbility = EHBAbility::EHBA_Basic;
+    FHBAbilitySpec PendingGASSpec;
+    TWeakObjectPtr<AHBEnemyCharacter> PendingGASTarget;
+    FVector PendingGASAim = FVector::ZeroVector;
+    bool bPendingGASInPlace = false;
     void StartAttack();
     void FinishAttack();
     void OnAttackTimeout();

@@ -79,12 +79,13 @@ FHBAbilitySpec UHBLoadoutComponent::GetSlotSpec(int32 iSlot) const
 
 float UHBLoadoutComponent::GetSlotCooldown(int32 iSlot) const
 {
-    return this->Slots.IsValidIndex(iSlot) ? this->Budget.Remaining(static_cast<int32>(this->Slots[iSlot]), this->GetWorld()->GetTimeSeconds()) : 0.0f;
+    const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    return Player && Slots.IsValidIndex(iSlot) ? Player->GetGASCooldown(Slots[iSlot]) : 0.0f;
 }
 
 EHBActionResult UHBLoadoutComponent::Resolve(int32 iSlot, EHBActionResult Result)
 {
-    UHBDebugSubsystem::Record(this, TEXT("Combat"), FString::Printf(TEXT("Slot %d result=%s MP=%.1f"), iSlot, *StaticEnum<EHBActionResult>()->GetNameStringByValue(static_cast<int64>(Result)), this->fMana));
+    UHBDebugSubsystem::Record(this, TEXT("Combat"), FString::Printf(TEXT("Slot %d result=%s MP=%.1f"), iSlot, *StaticEnum<EHBActionResult>()->GetNameStringByValue(static_cast<int64>(Result)), this->GetMana()));
     this->OnActionResolved.Broadcast(iSlot, Result);
     return Result;
 }
@@ -114,32 +115,47 @@ EHBActionResult UHBLoadoutComponent::TryActivateSlot(int32 iSlot, AHBEnemyCharac
     {
         return this->Resolve(iSlot, EHBActionResult::EHBAR_Blocked);
     }
-    if (!this->Budget.CanSpend(static_cast<int32>(Ability), this->fMana, fCost, fNow))
+    if (GetMana() + KINDA_SMALL_NUMBER < fCost)
     {
-        return this->Resolve(iSlot, EHBActionResult::EHBAR_NoMana);
+        return Resolve(iSlot, EHBActionResult::EHBAR_NoMana);
     }
-    if (!Player->ExecuteAbility(Ability, *Spec, Target, AimPoint, bInPlace))
+    // GAS now owns ability activation, attributes, mana cost and shared cooldown.
+    if (!Player->TryActivateGASAction(Ability, *Spec, Target, AimPoint, bInPlace))
     {
-        return this->Resolve(iSlot, EHBActionResult::EHBAR_InvalidTarget);
+        return Resolve(iSlot, EHBActionResult::EHBAR_InvalidTarget);
     }
-    double fRemainingMana = this->fMana;
-    this->Budget.Commit(static_cast<int32>(Ability), fRemainingMana, fCost, fCooldown, fNow);
-    this->fMana = fRemainingMana;
-    return this->Resolve(iSlot, EHBActionResult::EHBAR_Accepted);
+    return Resolve(iSlot, EHBActionResult::EHBAR_Accepted);
 }
 
-void UHBLoadoutComponent::Regenerate(float fDeltaSeconds)
+float UHBLoadoutComponent::GetMana() const
 {
-    if (this->Definition)
+    const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    return Player ? Player->GetGASMana() : 0.0f;
+}
+
+float UHBLoadoutComponent::GetManaFraction() const
+{
+    const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    return Player ? FMath::Clamp(Player->GetGASMana() / FMath::Max(1.0f, Player->GetGASMaxMana()), 0.0f, 1.0f) : 0.0f;
+}
+
+void UHBLoadoutComponent::Regenerate(float DeltaSeconds)
+{
+    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    if (Player && Definition && DeltaSeconds > 0.0f)
     {
-        this->fMana = FMath::Clamp(this->fMana + FMath::Max(0.0f, this->Definition->fManaRegeneration) * fDeltaSeconds, 0.0f, FMath::Max(1.0f, this->Definition->fMaxMana));
+        Player->ApplyGASManaDelta(FMath::Max(0.0f, Definition->fManaRegeneration) * DeltaSeconds);
     }
 }
 
 void UHBLoadoutComponent::ResetResources()
 {
-    this->fMana = this->Definition ? FMath::Max(1.0f, this->Definition->fMaxMana) : 100.0f;
-    this->Budget.Reset();
+    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    if (Player)
+    {
+        Player->ResetGASMana(Definition ? Definition->fMaxMana : 100.0f);
+        Player->ClearGASCooldowns();
+    }
 }
 
 void UHBLoadoutComponent::AppendDebugChecks(TArray<FString>& Checks) const

@@ -1,4 +1,9 @@
 #include "HBPlayerCharacter.h"
+#include "HBAttributes.h"
+#include "HBEffects.h"
+#include "HBGameplayAbility.h"
+#include "AbilitySystemComponent.h"
+#include "GameplayEffect.h"
 #include "HBDebugSubsystem.h"
 #include "Engine/SkeletalMesh.h"
 #include "HBEnemyCharacter.h"
@@ -32,6 +37,177 @@ AHBPlayerCharacter::AHBPlayerCharacter()
     this->Camera->SetupAttachment(this->CameraBoom);
     this->Feedback = this->CreateDefaultSubobject<UHBFeedbackComponent>(TEXT("Feedback"));
     this->Loadout = this->CreateDefaultSubobject<UHBLoadoutComponent>(TEXT("Loadout"));
+}
+
+bool AHBPlayerCharacter::TryActivateGASAction(EHBAbility Ability, const FHBAbilitySpec& Spec,
+    AHBEnemyCharacter* Target, const FVector& AimPoint, bool bInPlace)
+{
+    // The prototype targets standalone/PIE authority. No client target-data RPC yet.
+    if (!HasAuthority() || !AbilitySystem || bGASContextReady)
+    {
+        return false;
+    }
+    bGASContextReady = true;
+    bLastGASActivationAccepted = false;
+    PendingGASAbility = Ability;
+    PendingGASSpec = Spec;
+    PendingGASTarget = Target;
+    PendingGASAim = AimPoint;
+    bPendingGASInPlace = bInPlace;
+
+    TSubclassOf<UGameplayAbility> AbilityClass;
+    switch (Ability)
+    {
+    case EHBAbility::EHBA_Basic: AbilityClass = UHBGA_Basic::StaticClass(); break;
+    case EHBAbility::EHBA_Pulse: AbilityClass = UHBGA_Pulse::StaticClass(); break;
+    case EHBAbility::EHBA_Dodge: AbilityClass = UHBGA_Dodge::StaticClass(); break;
+    case EHBAbility::EHBA_Guard: AbilityClass = UHBGA_Guard::StaticClass(); break;
+    case EHBAbility::EHBA_Mend: AbilityClass = UHBGA_Mend::StaticClass(); break;
+    case EHBAbility::EHBA_Bolt: AbilityClass = UHBGA_Bolt::StaticClass(); break;
+    }
+    const bool bActivated = AbilityClass && AbilitySystem->TryActivateAbilityByClass(AbilityClass);
+    const bool bAccepted = bActivated && bLastGASActivationAccepted;
+    bGASContextReady = false;
+    PendingGASTarget.Reset();
+    UHBDebugSubsystem::Record(this, TEXT("Combat"),
+        FString::Printf(TEXT("GAS Activate %s accepted=%d mana=%.1f cooldown=%.2f"),
+            *StaticEnum<EHBAbility>()->GetNameStringByValue(static_cast<int64>(Ability)),
+            bAccepted, GetGASMana(), GetGASCooldown(Ability)));
+    return bAccepted;
+}
+
+bool AHBPlayerCharacter::CanExecutePendingGAS(EHBAbility Ability) const
+{
+    if (!bGASContextReady || PendingGASAbility != Ability || !IsAlive() || bBuildMode || bDodging ||
+        (bAttacking && Ability != EHBAbility::EHBA_Basic) || PendingGASAim.ContainsNaN())
+    {
+        return false;
+    }
+    AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
+    if (!Mode || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
+    {
+        return false;
+    }
+    AHBEnemyCharacter* Target = PendingGASTarget.Get();
+    if (Ability == EHBAbility::EHBA_Mend)
+    {
+        return GetHealth() + KINDA_SMALL_NUMBER < GetMaxHealth();
+    }
+    if (Ability == EHBAbility::EHBA_Pulse)
+    {
+        return FVector::DistSquaredXY(GetActorLocation(), PendingGASAim) <= FMath::Square(PendingGASSpec.fRange);
+    }
+    if (Ability == EHBAbility::EHBA_Basic || Ability == EHBAbility::EHBA_Bolt)
+    {
+        if (!IsValid(Target) || !Target->IsAlive())
+        {
+            return false;
+        }
+        const bool bInRange = FVector::DistSquaredXY(GetActorLocation(), Target->GetActorLocation()) <= FMath::Square(PendingGASSpec.fRange);
+        if (Ability == EHBAbility::EHBA_Bolt)
+        {
+            return bInRange && HasHitLine(Target->GetActorLocation(), Target);
+        }
+        return !bPendingGASInPlace || bInRange;
+    }
+    return true;
+}
+
+bool AHBPlayerCharacter::ExecutePendingGAS(EHBAbility Ability)
+{
+    return CanExecutePendingGAS(Ability) &&
+        ExecuteAbility(Ability, PendingGASSpec, PendingGASTarget.Get(), PendingGASAim, bPendingGASInPlace);
+}
+
+float AHBPlayerCharacter::GetPendingGASCost(EHBAbility Ability) const
+{
+    return bGASContextReady && PendingGASAbility == Ability && Ability != EHBAbility::EHBA_Basic &&
+        Ability != EHBAbility::EHBA_Dodge ? FMath::Max(0.0f, PendingGASSpec.fManaCost) : 0.0f;
+}
+
+float AHBPlayerCharacter::GetPendingGASCooldown(EHBAbility Ability) const
+{
+    return bGASContextReady && PendingGASAbility == Ability && Ability != EHBAbility::EHBA_Basic
+        ? FMath::Max(0.0f, PendingGASSpec.fCooldown) : 0.0f;
+}
+
+float AHBPlayerCharacter::GetGASMana() const
+{
+    return Attributes ? Attributes->GetMana() : 0.0f;
+}
+
+float AHBPlayerCharacter::GetGASMaxMana() const
+{
+    return Attributes ? Attributes->GetMaxMana() : 100.0f;
+}
+
+void AHBPlayerCharacter::ApplyGASManaDelta(float Delta)
+{
+    if (!HasAuthority() || !AbilitySystem || !FMath::IsFinite(Delta) || FMath::IsNearlyZero(Delta))
+    {
+        return;
+    }
+    FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(UHBGE_ManaDelta::StaticClass(), 1.0f, AbilitySystem->MakeEffectContext());
+    if (Effect.IsValid())
+    {
+        Effect.Data->SetSetByCallerMagnitude(FName(TEXT("Magnitude")), Delta);
+        AbilitySystem->ApplyGameplayEffectSpecToSelf(*Effect.Data.Get());
+    }
+}
+
+void AHBPlayerCharacter::ApplyGASCooldown(EHBAbility Ability, float Duration)
+{
+    if (!HasAuthority() || !AbilitySystem || !FMath::IsFinite(Duration) || Duration <= 0.0f)
+    {
+        return;
+    }
+    FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(UHBGE_Cooldown::StaticClass(), 1.0f, AbilitySystem->MakeEffectContext());
+    if (Effect.IsValid())
+    {
+        Effect.Data->SetDuration(Duration, true);
+        Effect.Data->DynamicGrantedTags.AddTag(HBGetCooldownTag(Ability));
+        AbilitySystem->ApplyGameplayEffectSpecToSelf(*Effect.Data.Get());
+    }
+}
+
+float AHBPlayerCharacter::GetGASCooldown(EHBAbility Ability) const
+{
+    if (!AbilitySystem || Ability == EHBAbility::EHBA_Basic)
+    {
+        return 0.0f;
+    }
+    const FGameplayEffectQuery Query = FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(
+        FGameplayTagContainer(HBGetCooldownTag(Ability)));
+    const TArray<float> Remaining = AbilitySystem->GetActiveEffectsTimeRemaining(Query);
+    float Longest = 0.0f;
+    for (const float Seconds : Remaining)
+    {
+        Longest = FMath::Max(Longest, Seconds);
+    }
+    return Longest;
+}
+
+void AHBPlayerCharacter::ResetGASMana(float MaxMana)
+{
+    if (HasAuthority() && AbilitySystem && FMath::IsFinite(MaxMana))
+    {
+        AbilitySystem->SetNumericAttributeBase(UHBAttributes::GetMaxManaAttribute(), FMath::Max(1.0f, MaxMana));
+        AbilitySystem->SetNumericAttributeBase(UHBAttributes::GetManaAttribute(), FMath::Max(1.0f, MaxMana));
+    }
+}
+
+void AHBPlayerCharacter::ClearGASCooldowns()
+{
+    if (!HasAuthority() || !AbilitySystem)
+    {
+        return;
+    }
+    FGameplayTagContainer Tags;
+    for (int32 Index = 0; Index < HBRuleCore::iAbilityCount; ++Index)
+    {
+        Tags.AddTag(HBGetCooldownTag(static_cast<EHBAbility>(Index)));
+    }
+    AbilitySystem->RemoveActiveEffects(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(Tags));
 }
 
 void AHBPlayerCharacter::RequestMove(const FVector& Position)
@@ -578,6 +754,16 @@ void AHBPlayerCharacter::OnAttackTimeout()
 void AHBPlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
+    if (HasAuthority() && AbilitySystem)
+    {
+        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Basic::StaticClass(), 1));
+        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Pulse::StaticClass(), 1));
+        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Dodge::StaticClass(), 1));
+        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Guard::StaticClass(), 1));
+        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Mend::StaticClass(), 1));
+        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Bolt::StaticClass(), 1));
+        UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("GAS: six gameplay abilities granted on server"));
+    }
     const UAnimInstance* Anim = this->GetMesh()->GetAnimInstance();
     UE_LOG(LogHideInTheBox, Log, TEXT("Runtime identity: pawn=%s class=%s anim=%s montage=%s"), *this->GetName(), *this->GetClass()->GetName(), Anim ? *Anim->GetClass()->GetName() : TEXT("NONE"), *GetNameSafe(this->AttackMontage));
     if (this->AttackMontage && !Anim)
@@ -609,5 +795,7 @@ void AHBPlayerCharacter::AppendDebugChecks(TArray<FString>& Checks) const
         Checks.Add(TEXT("WARN Placeholder Tint Material missing; assign M_DemoTint for colors."));
     }
     Checks.Add(this->Feedback->HasRingMaterial() ? TEXT("OK Feedback Ring Material assigned; verify Color/Opacity parameters in Editor.") : TEXT("WARN Feedback Ring Material missing; assign M_DemoRing for tint/fade."));
+    Checks.Add(AbilitySystem && Attributes ? TEXT("OK GAS: ASC + AttributeSet attached.") : TEXT("ERROR GAS: missing ASC/AttributeSet."));
+    Checks.Add(FString::Printf(TEXT("GAS HP %.0f/%.0f MP %.0f/%.0f"), GetHealth(), GetMaxHealth(), GetGASMana(), GetGASMaxMana()));
     this->Loadout->AppendDebugChecks(Checks);
 }

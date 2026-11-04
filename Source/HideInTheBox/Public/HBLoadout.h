@@ -57,8 +57,8 @@ public:
     UFUNCTION(BlueprintPure, Category="Loadout") EHBAbility GetSlotAbility(int32 iSlot) const;
     UFUNCTION(BlueprintPure, Category="Loadout") FHBAbilitySpec GetSlotSpec(int32 iSlot) const;
     UFUNCTION(BlueprintPure, Category="Loadout") float GetSlotCooldown(int32 iSlot) const;
-    UFUNCTION(BlueprintPure, Category="Resources") float GetMana() const { return this->fMana; }
-    float GetManaFraction() const { return this->Definition ? FMath::Clamp(this->fMana / FMath::Max(1.0f, this->Definition->fMaxMana), 0.0f, 1.0f) : 0.0f; }
+    UFUNCTION(BlueprintPure, Category="Resources") float GetMana() const;
+    float GetManaFraction() const;
     void AppendDebugChecks(TArray<FString>& Checks) const;
     void Regenerate(float fDeltaSeconds);
     void ResetResources();
@@ -71,6 +71,4 @@ private:
     EHBActionResult Resolve(int32 iSlot, EHBActionResult Result);
     UPROPERTY(Transient) TArray<EHBAbility> Slots;
     bool bUsedDefaultDefinition = false;
-    float fMana = 100.0f;
-    HBRuleCore::FAbilityBudget Budget;
 };

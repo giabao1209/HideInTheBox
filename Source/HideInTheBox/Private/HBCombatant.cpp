@@ -1,4 +1,8 @@
 #include "HBCombatant.h"
+#include "HBAttributes.h"
+#include "HBEffects.h"
+#include "AbilitySystemComponent.h"
+#include "GameplayEffect.h"
 #include "HBDebugSubsystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -10,6 +14,11 @@
 
 AHBCombatant::AHBCombatant()
 {
+    bReplicates = true;
+    AbilitySystem = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystem"));
+    AbilitySystem->SetIsReplicatedByDefault(true);
+    AbilitySystem->SetReplicationMode(EGameplayEffectReplicationMode::Full);
+    Attributes = CreateDefaultSubobject<UHBAttributes>(TEXT("Attributes"));
     this->GetCapsuleComponent()->InitCapsuleSize(34.0f, 88.0f);
     this->GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
     this->GetCharacterMovement()->bOrientRotationToMovement = false;
@@ -38,6 +47,8 @@ AHBCombatant::AHBCombatant()
 void AHBCombatant::BeginPlay()
 {
     Super::BeginPlay();
+    AbilitySystem->InitAbilityActorInfo(this, this);
+    AbilitySystem->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetHealthAttribute()).AddUObject(this, &AHBCombatant::OnHealthAttributeChanged);
     this->RestoreHealth();
     if (this->GetMesh()->GetSkeletalMeshAsset())
     {
@@ -55,39 +66,79 @@ void AHBCombatant::BeginPlay()
     }
 }
 
-float AHBCombatant::TakeDamage(float fDamage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+UAbilitySystemComponent* AHBCombatant::GetAbilitySystemComponent() const
 {
-    if (!this->IsAlive() || !FMath::IsFinite(fDamage) || fDamage <= 0.0f)
+    return AbilitySystem;
+}
+
+float AHBCombatant::GetHealth() const
+{
+    return Attributes ? Attributes->GetHealth() : 0.0f;
+}
+
+float AHBCombatant::GetMaxHealth() const
+{
+    return Attributes ? Attributes->GetMaxHealth() : fMaxHealth;
+}
+
+float AHBCombatant::ApplyHealthDelta(float Delta)
+{
+    if (!HasAuthority() || !AbilitySystem || !FMath::IsFinite(Delta) || FMath::IsNearlyZero(Delta))
     {
         return 0.0f;
     }
-    const float fApplied = FMath::Min(fDamage, this->fHealth);
-    this->fHealth -= fApplied;
-    UHBDebugSubsystem::Record(this, TEXT("Combat"), FString::Printf(TEXT("%s -> %s damage=%.1f HP=%.1f"), *GetNameSafe(DamageCauser), *this->GetName(), fApplied, this->fHealth));
-    if (!this->IsAlive())
+    const float OldHealth = GetHealth();
+    FGameplayEffectSpecHandle Spec = AbilitySystem->MakeOutgoingSpec(UHBGE_HealthDelta::StaticClass(), 1.0f, AbilitySystem->MakeEffectContext());
+    if (!Spec.IsValid())
     {
-        this->OnDeath();
+        return 0.0f;
     }
-    return fApplied;
+    Spec.Data->SetSetByCallerMagnitude(FName(TEXT("Magnitude")), Delta);
+    AbilitySystem->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+    return GetHealth() - OldHealth;
+}
+
+float AHBCombatant::TakeDamage(float Damage, const FDamageEvent& DamageEvent, AController* Instigator, AActor* DamageCauser)
+{
+    if (!IsAlive() || !FMath::IsFinite(Damage) || Damage <= 0.0f || !HasAuthority())
+    {
+        return 0.0f;
+    }
+    const float Applied = FMath::Min(Damage, GetHealth());
+    UHBDebugSubsystem::Record(this, TEXT("Combat"),
+        FString::Printf(TEXT("GAS %s -> %s damage=%.1f HP=%.1f"),
+            *GetNameSafe(DamageCauser), *GetName(), Applied, FMath::Max(0.0f, GetHealth() - Applied)));
+    ApplyHealthDelta(-Applied);
+    return Applied;
 }
 
 void AHBCombatant::RestoreHealth()
 {
-    this->fHealth = this->fMaxHealth;
+    if (HasAuthority() && AbilitySystem)
+    {
+        AbilitySystem->SetNumericAttributeBase(UHBAttributes::GetMaxHealthAttribute(), FMath::Max(1.0f, fMaxHealth));
+        AbilitySystem->SetNumericAttributeBase(UHBAttributes::GetHealthAttribute(), FMath::Max(1.0f, fMaxHealth));
+    }
+}
+
+float AHBCombatant::Heal(float Amount)
+{
+    if (!IsAlive() || !FMath::IsFinite(Amount) || Amount <= 0.0f)
+    {
+        return 0.0f;
+    }
+    return FMath::Max(0.0f, ApplyHealthDelta(Amount));
+}
+
+void AHBCombatant::OnHealthAttributeChanged(const FOnAttributeChangeData& Data)
+{
+    if (HasAuthority() && Data.OldValue > 0.0f && Data.NewValue <= 0.0f)
+    {
+        OnDeath();
+    }
 }
 
 void AHBCombatant::OnDeath()
 {
-    this->Destroy();
-}
-
-float AHBCombatant::Heal(float fAmount)
-{
-    if (!this->IsAlive() || !FMath::IsFinite(fAmount) || fAmount <= 0.0f)
-    {
-        return 0.0f;
-    }
-    const float fRestored = FMath::Min(fAmount, this->fMaxHealth - this->fHealth);
-    this->fHealth += fRestored;
-    return fRestored;
+    Destroy();
 }
