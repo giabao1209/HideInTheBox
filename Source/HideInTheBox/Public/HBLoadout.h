@@ -71,4 +71,5 @@ private:
     EHBActionResult Resolve(int32 iSlot, EHBActionResult Result);
     UPROPERTY(Transient) TArray<EHBAbility> Slots;
     bool bUsedDefaultDefinition = false;
+    float RegenAccumulator = 0.0f;
 };

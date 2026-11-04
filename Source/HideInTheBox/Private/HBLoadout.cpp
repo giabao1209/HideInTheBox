@@ -103,7 +103,6 @@ EHBActionResult UHBLoadoutComponent::TryActivateSlot(int32 iSlot, AHBEnemyCharac
     {
         return this->Resolve(iSlot, EHBActionResult::EHBAR_Blocked);
     }
-    const float fNow = this->GetWorld()->GetTimeSeconds();
     // Basic attack always has no mana cost or extra cooldown, as required by the GDD.
     const float fCost = Ability == EHBAbility::EHBA_Basic || Ability == EHBAbility::EHBA_Dodge ? 0.0f : Spec->fManaCost;
     const float fCooldown = Ability == EHBAbility::EHBA_Basic ? 0.0f : Spec->fCooldown;
@@ -142,14 +141,26 @@ float UHBLoadoutComponent::GetManaFraction() const
 void UHBLoadoutComponent::Regenerate(float DeltaSeconds)
 {
     AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
-    if (Player && Definition && DeltaSeconds > 0.0f)
+    if (!Player || !Definition || !Player->HasAuthority() || !FMath::IsFinite(DeltaSeconds) || DeltaSeconds <= 0.0f)
     {
-        Player->ApplyGASManaDelta(FMath::Max(0.0f, Definition->fManaRegeneration) * DeltaSeconds);
+        return;
+    }
+    // Coalesce regeneration into four GAS effects per second instead of one every frame.
+    RegenAccumulator += DeltaSeconds;
+    if (RegenAccumulator >= 0.25f)
+    {
+        const float Amount = FMath::Max(0.0f, Definition->fManaRegeneration) * RegenAccumulator;
+        RegenAccumulator = 0.0f;
+        if (Player->GetGASMana() < Player->GetGASMaxMana())
+        {
+            Player->ApplyGASManaDelta(Amount);
+        }
     }
 }
 
 void UHBLoadoutComponent::ResetResources()
 {
+    RegenAccumulator = 0.0f;
     AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
     if (Player)
     {
