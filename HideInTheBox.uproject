@@ -1,31 +1,23 @@
 {
-  "FileVersion": 3,
-  "EngineAssociation": "5.7",
-  "Category": "Games",
-  "Description": "Vaultbreaker independent gameplay and player feedback prototype",
-  "Modules": [
-    {
-      "Name": "HideInTheBox",
-      "Type": "Runtime",
-      "LoadingPhase": "Default"
-    }
-  ],
-  "Plugins": [
-    {
-      "Name": "EnhancedInput",
-      "Enabled": true
-    },
-    {
-      "Name": "GameplayAbilities",
-      "Enabled": true
-    },
-    {
-      "Name": "GameplayTags",
-      "Enabled": true
-    },
-    {
-      "Name": "GameplayTasks",
-      "Enabled": true
-    }
-  ]
+	"FileVersion": 3,
+	"EngineAssociation": "{417E782C-4BD4-1037-96CC-27A7ABB94714}",
+	"Category": "Games",
+	"Description": "Vaultbreaker independent gameplay and player feedback prototype",
+	"Modules": [
+		{
+			"Name": "HideInTheBox",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true
+		},
+		{
+			"Name": "GameplayAbilities",
+			"Enabled": true
+		}
+	]
 }

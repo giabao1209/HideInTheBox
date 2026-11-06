@@ -7,6 +7,7 @@
 #include "HBPlayerController.h"
 #include "HBEnemyCharacter.h"
 #include "HBLoadout.h"
+#include "AbilitySystemComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Engine/Canvas.h"
@@ -47,14 +48,34 @@ void AHBHUD::DrawHUD()
     const float fHeight = this->Canvas->ClipY;
     const float fScale = FMath::Clamp(fWidth / 1600.0f, 0.7f, 1.2f);
     this->Panel(24.0f, 24.0f, 300.0f * fScale, 105.0f * fScale, Ice);
-    this->Label(TEXT("HIDE IN THE BOX"), 40.0f, 36.0f, Ice, 1.1f * fScale);
-    this->Label(FString::Printf(TEXT("%s   /   CYCLE %02d"), *Mode->GetPhaseLabel(), Mode->GetCycle()), 40.0f, 64.0f * fScale, FLinearColor::White, fScale);
-    this->Label(FString::Printf(TEXT("WAVE %d / 5    %.0fs    %d HOSTILES"), Mode->GetWave(), Mode->GetWaveSeconds(), Mode->GetEnemies().Num()), 40.0f, 93.0f * fScale, Muted, fScale);
+    this->Label(Mode->IsGASDemo() ? TEXT("GAS PRACTICE ARENA") : TEXT("HIDE IN THE BOX"), 40.0f, 36.0f, Ice, 1.1f * fScale);
+    this->Label(Mode->IsGASDemo() ? TEXT("Ability -> Effect -> Attribute / Tag") : FString::Printf(TEXT("%s   /   CYCLE %02d"), *Mode->GetPhaseLabel(), Mode->GetCycle()), 40.0f, 64.0f * fScale, FLinearColor::White, fScale);
+    this->Label(Mode->IsGASDemo() ? FString::Printf(TEXT("%d PRACTICE TARGETS | F6 TO RESET"), Mode->GetEnemies().Num()) : FString::Printf(TEXT("WAVE %d / 5    %.0fs    %d HOSTILES"), Mode->GetWave(), Mode->GetWaveSeconds(), Mode->GetEnemies().Num()), 40.0f, 93.0f * fScale, Muted, fScale);
+    if (Mode->IsGASDemo())
+    {
+        UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();
+        FGameplayTagContainer OwnedTags;
+        ASC->GetOwnedGameplayTags(OwnedTags);
+        TArray<FGameplayTag> TagArray;
+        OwnedTags.GetGameplayTagArray(TagArray);
+        const float X = fWidth - 310.0f * fScale - 24.0f;
+        this->Panel(X, 24.0f, 310.0f * fScale, 180.0f * fScale, Gold);
+        this->Label(TEXT("LIVE ABILITY SYSTEM"), X + 14.0f, 36.0f, Gold, fScale);
+        this->Label(FString::Printf(TEXT("Granted abilities: %d | Active GEs: %d"), ASC->GetActivatableAbilities().Num(), ASC->GetActiveEffects(FGameplayEffectQuery()).Num()), X + 14.0f, 60.0f, Ice, 0.85f * fScale);
+        this->Label(TagArray.IsEmpty() ? TEXT("Tags: none (ready)") : TEXT("Active tags:"), X + 14.0f, 82.0f, Muted, 0.85f * fScale);
+        for (int32 Index = 0; Index < FMath::Min(TagArray.Num(), 5); ++Index)
+        {
+            this->Label(TagArray[Index].ToString(), X + 14.0f, 103.0f + Index * 18.0f * fScale, Ice, 0.85f * fScale);
+        }
+    }
+    else
+    {
     this->Panel(fWidth - 280.0f * fScale - 24.0f, 24.0f, 280.0f * fScale, 105.0f * fScale, Gold);
     const float fRightX = fWidth - 280.0f * fScale - 8.0f;
     this->Label(FString::Printf(TEXT("%d   MAGIC STONES"), Mode->GetStones()), fRightX, 38.0f, Gold, fScale);
     this->Label(FString::Printf(TEXT("THREAT %d   /   NEXT WAVE %d"), Mode->GetThreat(), HBRules::GetWaveEnemyCount(FMath::Max(1, Mode->GetWave()), Mode->GetThreat())), fRightX, 68.0f * fScale, Muted, fScale);
     this->Label(FString::Printf(TEXT("GATE %.0f    ANIMA %.0f"), Mode->GetGateHealth(), Mode->GetCoreHealth()), fRightX, 94.0f * fScale, Ice, fScale);
+    }
 
     const float fSlotWidth = 110.0f * fScale;
     const float fBarWidth = 6.0f * fSlotWidth + 5.0f * 8.0f;
@@ -82,12 +103,12 @@ void AHBHUD::DrawHUD()
     const float fInfoY = 148.0f * fScale;
     this->Label(Mode->GetStatus(), 28.0f, fInfoY, Gold, 0.9f * fScale);
     const FString Controls = Controller->IsUsingGamepad() ? TEXT("D-pad Up: next phase   Down: build   Right: socket   Left: repair   L3: cache   R3: cancel   Start: pause") : TEXT("Enter: next phase   B: build   Tab: socket   R: repair   E: cache   Space: cancel   P: pause   F2: diagnostics");
-    this->Label(Controls, 28.0f, fHeight - 25.0f, Muted, 0.85f * fScale);
+    this->Label(Mode->IsGASDemo() ? TEXT("WASD: move | LMB: attack/move | RMB: Pulse | 1: Dodge | 2: Guard | 3: Mend | 4: Bolt | P: pause | F2: diagnostics") : Controls, 28.0f, fHeight - 25.0f, Muted, 0.85f * fScale);
     if (Player->IsBuilding())
     {
         this->Label(FString::Printf(TEXT("BUILD MODE  /  SOCKET %d  /  %s  /  30 STONES"), Mode->GetBuildSocketIndex() + 1, Mode->IsBuildSocketOccupied() ? TEXT("OCCUPIED") : TEXT("EMPTY")), 28.0f, fInfoY + 30.0f, Ice, fScale);
     }
-    if (Mode->GetPhase() == EHBPhase::EHBP_Dungeon)
+    if (Mode->GetPhase() == EHBPhase::EHBP_Dungeon && !Mode->IsGASDemo())
     {
         for (int32 iChest = 0; iChest < 3; ++iChest)
         {

@@ -22,6 +22,11 @@ AHBGameMode::AHBGameMode()
 void AHBGameMode::StartPlay()
 {
     Super::StartPlay();
+    if (this->bGASDemo)
+    {
+        this->ResetGASDemo();
+        return;
+    }
     if (!this->DiscoverArenaActors())
     {
         this->EndRun();
@@ -34,6 +39,45 @@ void AHBGameMode::StartPlay()
         PlayerCharacter->ResetForPhase(this->GetTaggedLocation(this->TownSpawnTag, PlayerCharacter->GetActorLocation()));
     }
     this->Status = TEXT("Enter the dungeon with Enter / D-pad Up. Earn stones to build defenses.");
+}
+
+void AHBGameMode::ResetGASDemo()
+{
+    if (!this->bGASDemo) { return; }
+    AHBPlayerCharacter* Player = this->GetPlayer();
+    if (!Player) { return; }
+    this->ClearEnemies();
+    this->Transition(EHBPhase::EHBP_Dungeon);
+    AHBPlayerController* Controller = Cast<AHBPlayerController>(Player->GetController());
+    if (Controller) { Controller->ResetTransientInput(); }
+    Player->ResetForPhase(this->GetTaggedLocation(this->TownSpawnTag, Player->GetActorLocation()));
+    TArray<TObjectPtr<AActor>> Targets;
+    this->FindTaggedActors(TEXT("HB_GASDemoTarget"), Targets);
+    for (AActor* Target : Targets)
+    {
+        this->SpawnEnemyAt(Target->GetActorLocation(), Target->GetActorRotation());
+    }
+    for (const TWeakObjectPtr<AHBEnemyCharacter>& Enemy : this->Enemies)
+    {
+        if (Enemy.IsValid()) { Enemy->SetActorTickEnabled(false); }
+    }
+    this->Status = TEXT("RMB: Pulse on cursor | 3: Mend | F6: reset targets + resources | F7: lose 60 HP | F8: refill MP");
+    UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("GAS practice reset: targets restored, HP/MP full, cooldowns cleared"));
+}
+
+void AHBGameMode::DamageGASDemoPlayer()
+{
+    AHBPlayerCharacter* Player = this->GetPlayer();
+    if (!this->bGASDemo || !Player || !Player->IsAlive()) { return; }
+    Player->ApplyHealthDelta(-FMath::Min(60.0f, Player->GetHealth() - 1.0f));
+    UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Practice: applied HealthDelta GE; use Mend to heal"));
+}
+
+void AHBGameMode::RefillGASDemoMana()
+{
+    AHBPlayerCharacter* Player = this->GetPlayer();
+    if (!this->bGASDemo || !Player || !Player->IsAlive()) { return; }
+    Player->ApplyGASManaDelta(Player->GetGASMaxMana() - Player->GetGASMana());
 }
 
 bool AHBGameMode::DiscoverArenaActors()
@@ -167,6 +211,7 @@ void AHBGameMode::Transition(EHBPhase NewPhase)
 
 void AHBGameMode::AdvancePhase()
 {
+    if (this->bGASDemo) { return; }
     AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
     if (!PlayerCharacter || !PlayerCharacter->IsAlive())
     {
@@ -255,6 +300,7 @@ void AHBGameMode::UnregisterEnemy(AHBEnemyCharacter* Enemy)
 
 void AHBGameMode::NotifyEnemyKilled(AHBEnemyCharacter* Enemy)
 {
+    if (this->bGASDemo) { return; }
     const EHBPhase PhaseAtDefeat = this->Phase;
     if (PhaseAtDefeat == EHBPhase::EHBP_Dungeon)
     {

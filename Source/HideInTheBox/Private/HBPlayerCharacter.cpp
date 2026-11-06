@@ -202,12 +202,12 @@ void AHBPlayerCharacter::ClearGASCooldowns()
     {
         return;
     }
-    FGameplayTagContainer Tags;
+    FGameplayTagContainer CooldownTags;
     for (int32 Index = 0; Index < HBRuleCore::iAbilityCount; ++Index)
     {
-        Tags.AddTag(HBGetCooldownTag(static_cast<EHBAbility>(Index)));
+        CooldownTags.AddTag(HBGetCooldownTag(static_cast<EHBAbility>(Index)));
     }
-    AbilitySystem->RemoveActiveEffects(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(Tags));
+    AbilitySystem->RemoveActiveEffects(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(CooldownTags));
 }
 
 void AHBPlayerCharacter::RequestMove(const FVector& Position)

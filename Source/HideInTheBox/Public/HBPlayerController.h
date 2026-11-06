@@ -38,6 +38,9 @@ public:
     UFUNCTION(Exec) void HBRebind(int32 SlotIndex, FName KeyName, bool bForGamepad);
     UFUNCTION(Exec) void HBAssign(int32 SlotIndex, int32 AbilityIndex);
     UFUNCTION(Exec) void HBCameraYaw(float Yaw);
+    UFUNCTION(Exec) void HBGASReset();
+    UFUNCTION(Exec) void HBGASDamage();
+    UFUNCTION(Exec) void HBGASRefill();
 protected:
     virtual void SetupInputComponent() override;
     virtual void BeginPlay() override;

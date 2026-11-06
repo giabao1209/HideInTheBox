@@ -16,7 +16,7 @@ AHBCombatant::AHBCombatant()
 {
     bReplicates = true;
     AbilitySystem = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystem"));
-    AbilitySystem->SetIsReplicatedByDefault(true);
+    AbilitySystem->SetIsReplicated(true);
     AbilitySystem->SetReplicationMode(EGameplayEffectReplicationMode::Full);
     Attributes = CreateDefaultSubobject<UHBAttributes>(TEXT("Attributes"));
     this->GetCapsuleComponent()->InitCapsuleSize(34.0f, 88.0f);
@@ -98,7 +98,7 @@ float AHBCombatant::ApplyHealthDelta(float Delta)
     return GetHealth() - OldHealth;
 }
 
-float AHBCombatant::TakeDamage(float Damage, const FDamageEvent& DamageEvent, AController* Instigator, AActor* DamageCauser)
+float AHBCombatant::TakeDamage(float Damage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
     if (!IsAlive() || !FMath::IsFinite(Damage) || Damage <= 0.0f || !HasAuthority())
     {

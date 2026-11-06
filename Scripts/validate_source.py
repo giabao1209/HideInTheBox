@@ -12,14 +12,19 @@ def require(condition, message):
         errors.append(message)
 
 project = json.loads((root / "HideInTheBox.uproject").read_text())
-require(project["EngineAssociation"] == "5.7", "Unexpected engine target")
+association = project["EngineAssociation"]
+require(association == "5.8" or re.fullmatch(r"\{[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}", association),
+        "Expected UE 5.8 or a registered source-build GUID (see GAS demo guide)")
 module = project["Modules"][0]["Name"]
 require((root / f"Source/{module}/{module}.Build.cs").is_file(), "Missing runtime Build.cs")
 for target in [module, module + "Editor"]:
     require((root / f"Source/{target}.Target.cs").is_file(), f"Missing target {target}")
 require(any(p["Name"] == "EnhancedInput" and p["Enabled"] for p in project["Plugins"]), "EnhancedInput not enabled")
-for gas_plugin in ("GameplayAbilities", "GameplayTags", "GameplayTasks"):
+for gas_plugin in ("GameplayAbilities",):
     require(any(p["Name"] == gas_plugin and p["Enabled"] for p in project["Plugins"]), f"{gas_plugin} not enabled")
+build_rules = (root / f"Source/{module}/{module}.Build.cs").read_text()
+for gas_module in ("GameplayAbilities", "GameplayTags", "GameplayTasks"):
+    require(f'"{gas_module}"' in build_rules, f"Missing GAS module dependency {gas_module}")
 for gas_source in ("HBAttributes.h", "HBEffects.h", "HBGameplayAbility.h"):
     require((root / "Source" / module / "Public" / gas_source).is_file(), f"Missing GAS source {gas_source}")
 require((root / "Config/DefaultGameplayTags.ini").is_file(), "Missing GAS cooldown tag config")

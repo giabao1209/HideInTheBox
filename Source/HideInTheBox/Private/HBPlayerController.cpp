@@ -368,6 +368,12 @@ void AHBPlayerController::PlayerTick(float fDeltaSeconds)
     {
         return;
     }
+    if (Mode->IsGASDemo())
+    {
+        if (this->WasInputKeyJustPressed(EKeys::F6)) { this->HBGASReset(); return; }
+        if (this->WasInputKeyJustPressed(EKeys::F7)) { this->HBGASDamage(); }
+        if (this->WasInputKeyJustPressed(EKeys::F8)) { this->HBGASRefill(); }
+    }
     PlayerCharacter->SetDirectInput(this->bGamepad ? this->MoveInput : this->KeyboardInput);
     AHBEnemyCharacter* Hover = nullptr;
     if (this->bGamepad)
@@ -679,4 +685,22 @@ void AHBPlayerController::HBPerfClear()
 #if !UE_BUILD_SHIPPING
     this->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->ClearPerformance();
 #endif
+}
+
+void AHBPlayerController::HBGASReset()
+{
+    AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
+    if (Mode && !this->IsPaused()) { Mode->ResetGASDemo(); }
+}
+
+void AHBPlayerController::HBGASDamage()
+{
+    AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
+    if (Mode && !this->IsPaused()) { Mode->DamageGASDemoPlayer(); }
+}
+
+void AHBPlayerController::HBGASRefill()
+{
+    AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
+    if (Mode && !this->IsPaused()) { Mode->RefillGASDemoMana(); }
 }

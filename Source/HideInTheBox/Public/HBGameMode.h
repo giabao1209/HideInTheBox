@@ -21,6 +21,10 @@ class HIDEINTHEBOX_API AHBGameMode : public AGameModeBase
 public:
     AHBGameMode();
     virtual void StartPlay() override;
+    bool IsGASDemo() const { return this->bGASDemo; }
+    void ResetGASDemo();
+    void DamageGASDemoPlayer();
+    void RefillGASDemoMana();
 
     /** C++ owns the phase/economy/wave rules. Blueprint GameMode supplies class/data defaults and presentation. */
     void AdvancePhase();
@@ -63,6 +67,7 @@ public:
     UPROPERTY(BlueprintAssignable, Category="Demo|Events") FHBEnemyDefeated OnEnemyDefeated;
 
 protected:
+    UPROPERTY(EditDefaultsOnly, Category="GAS Demo") bool bGASDemo = false;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     UPROPERTY(EditDefaultsOnly, Category="Demo|Classes") TSubclassOf<AHBEnemyCharacter> EnemyClass;
     UPROPERTY(EditDefaultsOnly, Category="Demo|Classes") TSubclassOf<AHBStructure> TurretClass;
