@@ -6,6 +6,7 @@
 #include "HBLoadout.generated.h"
 class AHBEnemyCharacter;
 class UHBGameplayAbility;
+class UTexture2D;
 
 UENUM(BlueprintType)
 enum class EHBAbility : uint8
@@ -24,6 +25,7 @@ struct FHBAbilitySpec
 {
     GENERATED_BODY()
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability") FText Name;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability") TObjectPtr<UTexture2D> Icon;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability") TSubclassOf<UHBGameplayAbility> AbilityClass;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability", meta=(ClampMin="0")) float fManaCost = 0.0f;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability", meta=(ClampMin="0")) float fCooldown = 0.0f;

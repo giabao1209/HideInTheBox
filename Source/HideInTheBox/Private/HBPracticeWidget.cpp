@@ -1,8 +1,10 @@
 #include "HBPracticeWidget.h"
 
 #include "AbilitySystemComponent.h"
+#include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "HBGameMode.h"
 #include "HBPlayerCharacter.h"
@@ -77,6 +79,11 @@ void UHBPracticeWidget::Refresh()
         UTextBlock* SlotLabel = Cast<UTextBlock>(GetWidgetFromName(FName(*FString::Printf(TEXT("Ability%d"), SlotIndex))));
         if (!SlotLabel) { continue; }
         const FHBAbilitySpec Spec = Player->GetLoadout()->GetSlotSpec(SlotIndex);
+        UImage* SlotIcon = Cast<UImage>(GetWidgetFromName(FName(*FString::Printf(TEXT("AbilityIcon%d"), SlotIndex))));
+        if (SlotIcon && SlotIcon->GetBrush().GetResourceObject() != Spec.Icon)
+        {
+            SlotIcon->SetBrushFromTexture(Spec.Icon);
+        }
         const float Remaining = Player->GetLoadout()->GetSlotCooldown(SlotIndex);
         const FKey Key = Controller->GetSlotKey(SlotIndex, Controller->IsUsingGamepad());
         const FText KeyLabel = Key == EKeys::LeftMouseButton ? NSLOCTEXT("GASDemo", "LMB", "LMB") :

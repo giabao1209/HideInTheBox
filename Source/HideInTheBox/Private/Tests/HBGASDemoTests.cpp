@@ -6,14 +6,31 @@
 #include "HBPracticeWidget.h"
 #include "AbilitySystemComponent.h"
 #include "Components/Button.h"
+#include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "Components/WidgetComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
+DEFINE_LATENT_AUTOMATION_COMMAND_FOUR_PARAMETER(FHBVerifyMontageHit, FAutomationTestBase*, Test,
+    TWeakObjectPtr<AHBEnemyCharacter>, Target, float, ExpectedHealth, double, Deadline);
+
+bool FHBVerifyMontageHit::Update()
+{
+    if (Target.IsValid() && Target->GetHealth() > ExpectedHealth && FPlatformTime::Seconds() < Deadline)
+    {
+        return false;
+    }
+    Test->TestTrue(TEXT("Montage hit notify applied Basic damage"), Target.IsValid() &&
+        FMath::IsNearlyEqual(Target->GetHealth(), ExpectedHealth));
+    return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBGASPracticeTest, "HideInTheBox.GAS.Practice",
     EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 
@@ -48,6 +65,8 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     if (!this->TestNotNull(TEXT("Gameplay widget mounted"), GameplayPanel) ||
         !this->TestNotNull(TEXT("Inspector widget mounted"), InspectorPanel)) { return false; }
     this->TestEqual(TEXT("Player uses the demo Blueprint"), Player->GetClass()->GetName(), FString(TEXT("BP_GASDemoPlayer_C")));
+    this->TestTrue(TEXT("Player mesh and locomotion animation are assigned"),
+        Player->GetMesh()->GetSkeletalMeshAsset() && Player->GetMesh()->GetAnimInstance());
     this->TestEqual(TEXT("Pulse is granted from the Data Asset"), Loadout->GetAbilityClass(EHBAbility::EHBA_Pulse)->GetName(), FString(TEXT("GA_GASDemo_Pulse_C")));
     this->TestEqual(TEXT("Six granted abilities"), ASC->GetActivatableAbilities().Num(), 6);
     this->TestEqual(TEXT("Three practice targets"), Mode->GetEnemies().Num(), 3);
@@ -55,6 +74,8 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     AHBEnemyCharacter* Target = Mode->GetEnemies()[0].Get();
     if (!this->TestNotNull(TEXT("Target spawned"), Target)) { return false; }
     this->TestFalse(TEXT("Target AI disabled"), Target->IsActorTickEnabled());
+    this->TestTrue(TEXT("Target mesh and idle animation are assigned"),
+        Target->GetMesh()->GetSkeletalMeshAsset() && Target->GetMesh()->GetAnimInstance());
     UWidgetComponent* TargetHealthComponent = Target->FindComponentByClass<UWidgetComponent>();
     this->TestTrue(TEXT("Target uses its Widget Blueprint"), TargetHealthComponent && Cast<UHBGASTargetWidget>(TargetHealthComponent->GetUserWidgetObject()));
     const FVector Aim = Target->GetActorLocation();
@@ -74,6 +95,11 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestEqual(TEXT("Rejected cast spends no mana"), Player->GetGASMana(), 80.0f);
     Loadout->AssignAbilityToSlot(2, EHBAbility::EHBA_Pulse);
     this->TestEqual(TEXT("Reassigned slot shares cooldown"), Loadout->TryActivateSlot(2, nullptr, Aim, false), EHBActionResult::EHBAR_Cooldown);
+    GameplayPanel->Refresh();
+    const UImage* ReassignedIcon = Cast<UImage>(GameplayPanel->GetWidgetFromName(TEXT("AbilityIcon2")));
+    UTexture2D* PulseIcon = Loadout->GetSlotSpec(1).Icon;
+    this->TestTrue(TEXT("Reassigned slot displays the Pulse icon"), PulseIcon && ReassignedIcon &&
+        ReassignedIcon->GetBrush().GetResourceObject() == PulseIcon);
     Loadout->AssignAbilityToSlot(2, EHBAbility::EHBA_Dodge);
 
     Mode->ResetGASDemo();
@@ -130,6 +156,13 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
         NormalMode->Destroy();
     }
     Mode->ResetGASDemo();
+    Target = Mode->GetEnemies().IsEmpty() ? nullptr : Mode->GetEnemies()[0].Get();
+    if (!this->TestNotNull(TEXT("Montage test target spawned"), Target)) { return false; }
+    Player->SetActorLocation(Target->GetActorLocation() - FVector(120.0f, 0.0f, 0.0f));
+    const float ExpectedHealth = Target->GetHealth() - Loadout->GetSlotSpec(0).fPower;
+    this->TestEqual(TEXT("Basic starts with the Montage assigned"), Loadout->TryActivateSlot(0, Target, Target->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    this->TestEqual(TEXT("Basic uses animation playback"), Player->GetAttackPlayback(), FString(TEXT("Montage")));
+    ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyMontageHit(this, Target, ExpectedHealth, FPlatformTime::Seconds() + 3.0));
     return true;
 }
 #endif
