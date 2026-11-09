@@ -11,10 +11,53 @@
 #include "HBGameMode.h"
 #include "HBPlayerCharacter.h"
 #include "HBPlayerController.h"
+#include "Widgets/CommonActivatableWidgetContainer.h"
 
 TOptional<FUIInputConfig> UHBArenaHUD::GetDesiredInputConfig() const
 {
     return FUIInputConfig(ECommonInputMode::All, EMouseCaptureMode::CaptureDuringMouseDown, EMouseLockMode::DoNotLock, false);
+}
+
+void UHBArenaHUD::SetPauseMenuVisible(bool bVisible)
+{
+    if (!MenuStack || !PauseMenuClass)
+    {
+        return;
+    }
+    if (bVisible)
+    {
+        if (!MenuStack->GetActiveWidget())
+        {
+            MenuStack->SetVisibility(ESlateVisibility::Visible);
+            MenuStack->AddWidget<UHBPauseMenu>(PauseMenuClass);
+        }
+    }
+    else if (UCommonActivatableWidget* ActiveMenu = MenuStack->GetActiveWidget())
+    {
+        MenuStack->RemoveWidget(*ActiveMenu);
+        MenuStack->SetVisibility(ESlateVisibility::Collapsed);
+    }
+}
+
+UWidget* UHBPauseMenu::NativeGetDesiredFocusTarget() const
+{
+    return ResumeButton;
+}
+
+void UHBPauseMenu::ResumeGame()
+{
+    if (AHBPlayerController* Controller = GetOwningPlayer<AHBPlayerController>())
+    {
+        Controller->SetArenaPaused(false);
+    }
+}
+
+void UHBPauseMenu::RestartGame()
+{
+    if (AHBPlayerController* Controller = GetOwningPlayer<AHBPlayerController>())
+    {
+        Controller->RestartArena();
+    }
 }
 
 void UHBPracticeButton::SynchronizeProperties()
@@ -132,16 +175,23 @@ void UHBPracticeWidget::Refresh()
         if (!SlotLabel) { continue; }
         const FHBAbilitySpec Spec = Player->GetLoadout()->GetSlotSpec(SlotIndex);
         UImage* SlotIcon = Cast<UImage>(GetWidgetFromName(FName(*FString::Printf(TEXT("AbilityIcon%d"), SlotIndex))));
-        if (SlotIcon && SlotIcon->GetBrush().GetResourceObject() != Spec.Icon)
-        {
-            SlotIcon->SetBrushFromTexture(Spec.Icon);
-        }
         const float Remaining = Player->GetLoadout()->GetSlotCooldown(SlotIndex);
+        const float ManaCost = Spec.GetManaCost(Player->GetLoadout()->GetSlotAbility(SlotIndex));
+        const bool bCanAfford = Player->GetGASMana() + KINDA_SMALL_NUMBER >= ManaCost;
+        if (SlotIcon)
+        {
+            if (SlotIcon->GetBrush().GetResourceObject() != Spec.Icon)
+            {
+                SlotIcon->SetBrushFromTexture(Spec.Icon);
+            }
+            SlotIcon->SetRenderOpacity(Remaining > 0.0f || !bCanAfford ? 0.48f : 1.0f);
+        }
         const FKey Key = Controller->GetSlotKey(SlotIndex, Controller->IsUsingGamepad());
         const FText KeyLabel = Key == EKeys::LeftMouseButton ? NSLOCTEXT("GASDemo", "LMB", "LMB") :
             Key == EKeys::RightMouseButton ? NSLOCTEXT("GASDemo", "RMB", "RMB") : Key.GetDisplayName();
-        const FText State = Remaining > 0.0f ? FText::FromString(FString::Printf(TEXT("%.1f s"), Remaining)) : NSLOCTEXT("GASDemo", "Ready", "Ready");
-        SlotLabel->SetText(FText::Format(NSLOCTEXT("GASDemo", "Slot", "{0}  {1}\n{2}  /  {3} MP"), KeyLabel, Spec.Name, State, FText::AsNumber(Spec.fManaCost)));
+        const FText State = Remaining > 0.0f ? FText::FromString(FString::Printf(TEXT("%.1f s"), Remaining)) :
+            (bCanAfford ? NSLOCTEXT("GASDemo", "Ready", "Ready") : NSLOCTEXT("GASDemo", "NoMana", "Low MP"));
+        SlotLabel->SetText(FText::Format(NSLOCTEXT("GASDemo", "Slot", "{0}  {1}\n{2}  /  {3} MP"), KeyLabel, Spec.Name, State, FText::AsNumber(ManaCost)));
     }
 
     const UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();

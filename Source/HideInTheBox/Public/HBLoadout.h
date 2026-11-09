@@ -33,6 +33,11 @@ struct FHBAbilitySpec
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability", meta=(ClampMin="1")) float fRange = 165.0f;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability", meta=(ClampMin="1")) float fRadius = 220.0f;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability", meta=(ClampMin="0.05")) float fDuration = 0.25f;
+
+    float GetManaCost(EHBAbility Ability) const
+    {
+        return Ability == EHBAbility::EHBA_Basic || Ability == EHBAbility::EHBA_Dodge ? 0.0f : fManaCost;
+    }
 };
 
 /** Six definitions indexed by EHBAbility; six freely assignable slots, no class restriction. */

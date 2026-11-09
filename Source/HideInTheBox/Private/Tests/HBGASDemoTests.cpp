@@ -20,6 +20,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
+#include "Widgets/CommonActivatableWidgetContainer.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
@@ -87,12 +88,24 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
         FloorHit, Player->GetActorLocation(), Player->GetActorLocation() - FVector(0.0f, 0.0f, 500.0f), ECC_GameTraceChannel1, FloorQuery));
     UHBLoadoutComponent* Loadout = Player->GetLoadout();
     UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();
-    const AHBPlayerController* Controller = Cast<AHBPlayerController>(Player->GetController());
+    AHBPlayerController* Controller = Cast<AHBPlayerController>(Player->GetController());
     UUserWidget* HUD = Controller ? Controller->GetPracticeHUD() : nullptr;
     if (!this->TestNotNull(TEXT("Widget Blueprint HUD mounted"), HUD)) { return false; }
     const UCommonActivatableWidget* CommonHUD = Cast<UCommonActivatableWidget>(HUD);
     this->TestTrue(TEXT("The practice HUD is an active CommonUI screen"), CommonHUD && CommonHUD->IsActivated());
     this->TestTrue(TEXT("The game viewport routes CommonUI input"), Cast<UCommonGameViewportClient>(Player->GetWorld()->GetGameViewport()) != nullptr);
+    UCommonActivatableWidgetStack* MenuStack = Cast<UCommonActivatableWidgetStack>(HUD->GetWidgetFromName(TEXT("MenuStack")));
+    if (!this->TestNotNull(TEXT("HUD has a CommonUI menu stack"), MenuStack)) { return false; }
+    Controller->SetArenaPaused(true);
+    UCommonActivatableWidget* PauseMenu = MenuStack->GetActiveWidget();
+    this->TestTrue(TEXT("Pause pushes an active menu"), Controller->IsPaused() && PauseMenu && PauseMenu->IsActivated());
+    if (PauseMenu)
+    {
+        this->TestTrue(TEXT("The CommonUI Resume button can be clicked"), ClickPracticeButton(*PauseMenu, TEXT("ResumeButton")));
+    }
+    this->TestFalse(TEXT("Resume unpauses the world"), Controller->IsPaused());
+    this->TestNull(TEXT("Resume removes the pause menu from the stack"), MenuStack->GetActiveWidget());
+    Controller->SetArenaPaused(false);
     this->TestEqual(TEXT("HUD class comes from asset"), HUD->GetClass()->GetName(), FString(TEXT("WBP_GASDemoHUD_C")));
     UHBPracticeWidget* GameplayPanel = Cast<UHBPracticeWidget>(HUD->GetWidgetFromName(TEXT("GameplayPanel")));
     UHBPracticeWidget* InspectorPanel = Cast<UHBPracticeWidget>(HUD->GetWidgetFromName(TEXT("InspectorPanel")));
@@ -183,6 +196,11 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestFalse(TEXT("The reset button clears Mend cooldown"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Mend)));
     Player->ApplyGASManaDelta(-100.0f);
     this->TestEqual(TEXT("No-mana Pulse rejected"), Loadout->TryActivateSlot(1, nullptr, Aim, false), EHBActionResult::EHBAR_NoMana);
+    GameplayPanel->Refresh();
+    const UImage* PulseIconAtZeroMana = Cast<UImage>(GameplayPanel->GetWidgetFromName(TEXT("AbilityIcon1")));
+    const UImage* BasicIconAtZeroMana = Cast<UImage>(GameplayPanel->GetWidgetFromName(TEXT("AbilityIcon0")));
+    this->TestTrue(TEXT("Low mana dims Pulse and leaves free Basic available"),
+        PulseIconAtZeroMana && BasicIconAtZeroMana && PulseIconAtZeroMana->GetRenderOpacity() < BasicIconAtZeroMana->GetRenderOpacity());
     Mode->ResetGASDemo();
     this->TestEqual(TEXT("Dodge accepted"), Loadout->TryActivateSlot(2, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
     Mode->ResetGASDemo();

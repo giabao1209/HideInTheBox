@@ -23,6 +23,8 @@ public:
     virtual void OnPossess(APawn* InPawn) override;
     virtual void OnUnPossess() override;
     void ResetTransientInput();
+    void SetArenaPaused(bool bPaused);
+    void RestartArena();
     bool IsUsingGamepad() const { return this->bGamepad; }
     FString GetLastActionResult() const { return this->LastActionResult; }
     UUserWidget* GetPracticeHUD() const { return PracticeHUD; }

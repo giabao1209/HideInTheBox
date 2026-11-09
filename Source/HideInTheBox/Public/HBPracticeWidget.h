@@ -7,6 +7,8 @@
 #include "HBPracticeWidget.generated.h"
 
 class AHBCombatant;
+class UCommonActivatableWidgetStack;
+class UHBPauseMenu;
 class UProgressBar;
 class UTextBlock;
 
@@ -15,7 +17,33 @@ class HIDEINTHEBOX_API UHBArenaHUD : public UCommonActivatableWidget
 {
     GENERATED_BODY()
 
+public:
+    void SetPauseMenuVisible(bool bVisible);
+
+protected:
     virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
+
+    UPROPERTY(meta=(BindWidgetOptional))
+    TObjectPtr<UCommonActivatableWidgetStack> MenuStack;
+
+    UPROPERTY(EditDefaultsOnly, Category="Arena")
+    TSubclassOf<UHBPauseMenu> PauseMenuClass;
+};
+
+UCLASS(Abstract, Blueprintable)
+class HIDEINTHEBOX_API UHBPauseMenu : public UCommonActivatableWidget
+{
+    GENERATED_BODY()
+
+public:
+    UFUNCTION(BlueprintCallable, Category="Arena") void ResumeGame();
+    UFUNCTION(BlueprintCallable, Category="Arena") void RestartGame();
+
+protected:
+    virtual UWidget* NativeGetDesiredFocusTarget() const override;
+
+    UPROPERTY(meta=(BindWidget))
+    TObjectPtr<UCommonButtonBase> ResumeButton;
 };
 
 UCLASS(Abstract, Blueprintable)

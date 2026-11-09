@@ -181,8 +181,7 @@ void AHBPlayerCharacter::PresentPulseCue(FVector Location, float Radius, FLinear
 
 float AHBPlayerCharacter::GetPendingGASCost(EHBAbility Ability) const
 {
-    return bGASContextReady && PendingGASAbility == Ability && Ability != EHBAbility::EHBA_Basic &&
-        Ability != EHBAbility::EHBA_Dodge ? FMath::Max(0.0f, PendingGASSpec.fManaCost) : 0.0f;
+    return bGASContextReady && PendingGASAbility == Ability ? FMath::Max(0.0f, PendingGASSpec.GetManaCost(Ability)) : 0.0f;
 }
 
 float AHBPlayerCharacter::GetPendingGASCooldown(EHBAbility Ability) const

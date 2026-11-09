@@ -1,5 +1,6 @@
 #include "HBPlayerController.h"
 #include "CommonActivatableWidget.h"
+#include "HBPracticeWidget.h"
 #include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
 #include "HBEnemyCharacter.h"
@@ -291,9 +292,7 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
     UHBDebugSubsystem::Record(this, TEXT("Input"), FString::Printf(TEXT("Utility %s from %s"), iAction >= 0 && iAction < 9 ? UtilityNames[iAction] : TEXT("Unknown"), bFromGamepad ? TEXT("Gamepad") : TEXT("Mouse/KB")));
     if (Action == HBInput::EUtility::EU_Pause)
     {
-        const bool bPaused = this->IsPaused();
-        this->ResetTransientInput();
-        this->SetPause(!bPaused);
+        this->SetArenaPaused(!this->IsPaused());
         return;
     }
     if (this->bAwaitNeutral || this->IsPaused())
@@ -309,7 +308,7 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
     }
     if (Action == HBInput::EUtility::EU_Restart)
     {
-        UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
+        this->RestartArena();
         return;
     }
     if (!PlayerCharacter->IsAlive() || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
@@ -464,8 +463,24 @@ void AHBPlayerController::OnDeviceConnectionChanged(EInputDeviceConnectionState 
     if (State == EInputDeviceConnectionState::Disconnected && this->bGamepad)
     {
         this->FlushPressedKeys();
-        this->SetPause(true);
+        this->SetArenaPaused(true);
     }
+}
+
+void AHBPlayerController::SetArenaPaused(bool bPaused)
+{
+    ResetTransientInput();
+    SetPause(bPaused);
+    if (UHBArenaHUD* ArenaHUD = Cast<UHBArenaHUD>(PracticeHUD))
+    {
+        ArenaHUD->SetPauseMenuVisible(IsPaused());
+    }
+}
+
+void AHBPlayerController::RestartArena()
+{
+    SetArenaPaused(false);
+    UGameplayStatics::OpenLevel(this, FName(*UGameplayStatics::GetCurrentLevelName(this, true)));
 }
 
 bool AHBPlayerController::IsReserved(const FKey& Key) const

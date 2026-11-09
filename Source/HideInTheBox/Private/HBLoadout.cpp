@@ -117,7 +117,7 @@ EHBActionResult UHBLoadoutComponent::TryActivateSlot(int32 iSlot, AHBEnemyCharac
         return this->Resolve(iSlot, EHBActionResult::EHBAR_Blocked);
     }
     // Basic attack always has no mana cost or extra cooldown, as required by the GDD.
-    const float fCost = Ability == EHBAbility::EHBA_Basic || Ability == EHBAbility::EHBA_Dodge ? 0.0f : Spec->fManaCost;
+    const float fCost = Spec->GetManaCost(Ability);
     const float fCooldown = Ability == EHBAbility::EHBA_Basic ? 0.0f : Spec->fCooldown;
     if (this->GetSlotCooldown(iSlot) > 0.0f)
     {
