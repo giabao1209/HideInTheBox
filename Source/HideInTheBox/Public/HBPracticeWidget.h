@@ -2,15 +2,40 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "CommonActivatableWidget.h"
+#include "CommonButtonBase.h"
 #include "HBPracticeWidget.generated.h"
 
 class AHBCombatant;
 class UProgressBar;
 class UTextBlock;
 
+UCLASS(Abstract, Blueprintable)
+class HIDEINTHEBOX_API UHBArenaHUD : public UCommonActivatableWidget
+{
+    GENERATED_BODY()
+
+    virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
+};
+
+UCLASS(Abstract, Blueprintable)
+class HIDEINTHEBOX_API UHBPracticeButton : public UCommonButtonBase
+{
+    GENERATED_BODY()
+
+protected:
+    virtual void SynchronizeProperties() override;
+
+    UPROPERTY(EditAnywhere, Category="Appearance")
+    FText Label;
+
+    UPROPERTY(meta=(BindWidget))
+    TObjectPtr<UTextBlock> ButtonLabel;
+};
+
 /** Supplies live gameplay values to the designer-owned widget tree. */
 UCLASS(Abstract, Blueprintable)
-class HIDEINTHEBOX_API UHBPracticeWidget : public UUserWidget
+class HIDEINTHEBOX_API UHBPracticeWidget : public UCommonUserWidget
 {
     GENERATED_BODY()
 

@@ -8,7 +8,9 @@
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
-#include "Components/Button.h"
+#include "CommonActivatableWidget.h"
+#include "CommonButtonBase.h"
+#include "CommonGameViewportClient.h"
 #include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
@@ -22,6 +24,18 @@
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
 {
+    bool ClickPracticeButton(UUserWidget& Panel, FName Name)
+    {
+        UCommonButtonBase* Button = Cast<UCommonButtonBase>(Panel.GetWidgetFromName(Name));
+        UFunction* Click = Button ? Button->FindFunction(TEXT("HandleButtonClicked")) : nullptr;
+        if (!Click)
+        {
+            return false;
+        }
+        Button->ProcessEvent(Click, nullptr);
+        return true;
+    }
+
     void OnPulseDamageApplied(UAbilitySystemComponent* Source, const FGameplayEffectSpec& Spec,
         FActiveGameplayEffectHandle, UAbilitySystemComponent* ExpectedSource, bool* bApplied)
     {
@@ -76,6 +90,9 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     const AHBPlayerController* Controller = Cast<AHBPlayerController>(Player->GetController());
     UUserWidget* HUD = Controller ? Controller->GetPracticeHUD() : nullptr;
     if (!this->TestNotNull(TEXT("Widget Blueprint HUD mounted"), HUD)) { return false; }
+    const UCommonActivatableWidget* CommonHUD = Cast<UCommonActivatableWidget>(HUD);
+    this->TestTrue(TEXT("The practice HUD is an active CommonUI screen"), CommonHUD && CommonHUD->IsActivated());
+    this->TestTrue(TEXT("The game viewport routes CommonUI input"), Cast<UCommonGameViewportClient>(Player->GetWorld()->GetGameViewport()) != nullptr);
     this->TestEqual(TEXT("HUD class comes from asset"), HUD->GetClass()->GetName(), FString(TEXT("WBP_GASDemoHUD_C")));
     UHBPracticeWidget* GameplayPanel = Cast<UHBPracticeWidget>(HUD->GetWidgetFromName(TEXT("GameplayPanel")));
     UHBPracticeWidget* InspectorPanel = Cast<UHBPracticeWidget>(HUD->GetWidgetFromName(TEXT("InspectorPanel")));
@@ -151,9 +168,7 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestFalse(TEXT("Reset removes the Guard buff"), ASC->HasMatchingGameplayTag(GuardTag));
     this->TestEqual(TEXT("Full-health Mend rejected"), Loadout->TryActivateSlot(4, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_InvalidTarget);
     this->TestEqual(TEXT("Invalid Mend costs no mana"), Player->GetGASMana(), 100.0f);
-    UButton* DamageButton = Cast<UButton>(GameplayPanel->GetWidgetFromName(TEXT("DamageButton")));
-    if (!this->TestNotNull(TEXT("Widget damage button exists"), DamageButton)) { return false; }
-    DamageButton->OnClicked.Broadcast();
+    if (!this->TestTrue(TEXT("The CommonUI damage button can be clicked"), ClickPracticeButton(*GameplayPanel, TEXT("DamageButton")))) { return false; }
     this->TestEqual(TEXT("Damage helper removes 60 HP"), Player->GetHealth(), Player->GetMaxHealth() - 60.0f);
     GameplayPanel->Refresh();
     UProgressBar* HealthBar = Cast<UProgressBar>(GameplayPanel->GetWidgetFromName(TEXT("HealthBar")));
@@ -161,9 +176,11 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestEqual(TEXT("Mend accepted"), Loadout->TryActivateSlot(4, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
     this->TestEqual(TEXT("Mend heals 45 HP"), Player->GetHealth(), Player->GetMaxHealth() - 15.0f);
     this->TestEqual(TEXT("Mend spends 25 MP"), Player->GetGASMana(), 75.0f);
-    Mode->RefillGASDemoMana();
+    this->TestTrue(TEXT("The CommonUI refill button can be clicked"), ClickPracticeButton(*GameplayPanel, TEXT("RefillButton")));
     this->TestEqual(TEXT("Refill restores mana"), Player->GetGASMana(), 100.0f);
-    Mode->ResetGASDemo();
+    this->TestTrue(TEXT("The CommonUI reset button can be clicked"), ClickPracticeButton(*GameplayPanel, TEXT("ResetButton")));
+    this->TestEqual(TEXT("The reset button restores full HP"), Player->GetHealth(), Player->GetMaxHealth());
+    this->TestFalse(TEXT("The reset button clears Mend cooldown"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Mend)));
     Player->ApplyGASManaDelta(-100.0f);
     this->TestEqual(TEXT("No-mana Pulse rejected"), Loadout->TryActivateSlot(1, nullptr, Aim, false), EHBActionResult::EHBAR_NoMana);
     Mode->ResetGASDemo();
@@ -343,6 +360,8 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     const AHBPlayerController* Controller = Player ? Cast<AHBPlayerController>(Player->GetController()) : nullptr;
     UUserWidget* HUD = Controller ? Controller->GetPracticeHUD() : nullptr;
     if (!this->TestNotNull(TEXT("The full-game Widget Blueprint is mounted"), HUD)) { return false; }
+    const UCommonActivatableWidget* CommonHUD = Cast<UCommonActivatableWidget>(HUD);
+    this->TestTrue(TEXT("The full-game HUD is an active CommonUI screen"), CommonHUD && CommonHUD->IsActivated());
     this->TestEqual(TEXT("Arena uses its own Widget Blueprint"), HUD->GetClass()->GetName(), FString(TEXT("WBP_DemoArenaHUD_C")));
     this->TestEqual(TEXT("Arena shares the GAS mannequin"), Player->GetClass()->GetName(), FString(TEXT("BP_GASDemoPlayer_C")));
     this->TestEqual(TEXT("Arena grants six abilities"), Player->GetAbilitySystemComponent()->GetActivatableAbilities().Num(), 6);

@@ -1,14 +1,30 @@
 #include "HBPracticeWidget.h"
 
 #include "AbilitySystemComponent.h"
+#include "CommonInputModeTypes.h"
 #include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Engine/EngineBaseTypes.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "HBGameMode.h"
 #include "HBPlayerCharacter.h"
 #include "HBPlayerController.h"
+
+TOptional<FUIInputConfig> UHBArenaHUD::GetDesiredInputConfig() const
+{
+    return FUIInputConfig(ECommonInputMode::All, EMouseCaptureMode::CaptureDuringMouseDown, EMouseLockMode::DoNotLock, false);
+}
+
+void UHBPracticeButton::SynchronizeProperties()
+{
+    Super::SynchronizeProperties();
+    if (ButtonLabel)
+    {
+        ButtonLabel->SetText(Label);
+    }
+}
 
 void UHBPracticeWidget::NativeConstruct()
 {

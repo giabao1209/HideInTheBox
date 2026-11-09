@@ -1,4 +1,5 @@
 #include "HBPlayerController.h"
+#include "CommonActivatableWidget.h"
 #include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
 #include "HBEnemyCharacter.h"
@@ -150,7 +151,11 @@ void AHBPlayerController::BeginPlay()
         PracticeHUD = CreateWidget<UUserWidget>(this, GameMode->GetPracticeHUDClass());
         if (PracticeHUD)
         {
-            PracticeHUD->AddToViewport();
+            PracticeHUD->AddToPlayerScreen();
+            if (UCommonActivatableWidget* CommonHUD = Cast<UCommonActivatableWidget>(PracticeHUD))
+            {
+                CommonHUD->ActivateWidget();
+            }
         }
     }
 #if !UE_BUILD_SHIPPING
@@ -614,6 +619,10 @@ void AHBPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     if (PracticeHUD)
     {
+        if (UCommonActivatableWidget* CommonHUD = Cast<UCommonActivatableWidget>(PracticeHUD))
+        {
+            CommonHUD->DeactivateWidget();
+        }
         PracticeHUD->RemoveFromParent();
     }
     this->GetWorldTimerManager().ClearTimer(this->DebugCheckTimer);
