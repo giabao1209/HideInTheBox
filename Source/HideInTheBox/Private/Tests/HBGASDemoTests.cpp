@@ -215,4 +215,149 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyMontageHit(this, Player, Target, ExpectedHealth, FPlatformTime::Seconds() + 4.0));
     return true;
 }
+
+namespace
+{
+    void DefeatArenaEnemies(AHBGameMode& Mode)
+    {
+        const TArray<TWeakObjectPtr<AHBEnemyCharacter>> Enemies = Mode.GetEnemies();
+        for (const TWeakObjectPtr<AHBEnemyCharacter>& Enemy : Enemies)
+        {
+            if (Enemy.IsValid())
+            {
+                Enemy->ApplyHealthDelta(-Enemy->GetHealth());
+            }
+        }
+    }
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_FOUR_PARAMETER(FHBVerifyArenaDungeon, FAutomationTestBase*, Test,
+    TWeakObjectPtr<AHBGameMode>, Mode, TWeakObjectPtr<AHBEnemyCharacter>, Enemy, double, Deadline);
+
+bool FHBVerifyArenaDungeon::Update()
+{
+    AHBPlayerCharacter* Player = Mode.IsValid() ? Mode->GetPlayer() : nullptr;
+    if (Player && Player->GetHealth() >= Player->GetMaxHealth() && FPlatformTime::Seconds() < Deadline)
+    {
+        return false;
+    }
+    if (!Test->TestTrue(TEXT("Dungeon AI reaches and damages the player"), Enemy.IsValid() &&
+        Player && Player->IsAlive() && Player->GetHealth() < Player->GetMaxHealth()))
+    {
+        return true;
+    }
+    DefeatArenaEnemies(*Mode);
+    Test->TestEqual(TEXT("Six dungeon kills earn 90 stones"), Mode->GetStones(), 90);
+    Test->TestEqual(TEXT("Six dungeon kills earn six threat"), Mode->GetThreat(), 6);
+    Test->TestTrue(TEXT("The last kill displays the return instruction"), Mode->GetStatus().Contains(TEXT("Dungeon clear")));
+    const FVector Cache = Mode->GetGreedPosition(0);
+    Player->SetActorLocation(FVector(Cache.X, Cache.Y, Player->GetActorLocation().Z));
+    Mode->ClaimNearbyGreed();
+    Test->TestTrue(TEXT("The Dungeon cache can be collected"), Mode->IsGreedClaimed(0));
+    Test->TestEqual(TEXT("The cache grants 30 stones"), Mode->GetStones(), 120);
+    Test->TestEqual(TEXT("The cache adds three threat"), Mode->GetThreat(), 9);
+    Test->TestTrue(TEXT("Claiming a cache keeps the return instruction"), Mode->GetStatus().Contains(TEXT("returns to prep")));
+    Mode->AdvancePhase();
+    Test->TestEqual(TEXT("Cleared dungeon advances to prep"), Mode->GetPhase(), EHBPhase::EHBP_Return);
+    Mode->ToggleBuildMode();
+    Mode->ConfirmBuild();
+    Test->TestTrue(TEXT("The selected socket has a turret"), Mode->IsBuildSocketOccupied());
+    Test->TestEqual(TEXT("A turret costs 30 stones"), Mode->GetStones(), 90);
+    Mode->AdvancePhase();
+    Test->TestEqual(TEXT("Prep advances to Defense"), Mode->GetPhase(), EHBPhase::EHBP_Defense);
+    Test->TestEqual(TEXT("The first wave spawns six enemies at threat nine"), Mode->GetEnemies().Num(), 6);
+    return true;
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_FIVE_PARAMETER(FHBVerifyArenaDefense, FAutomationTestBase*, Test,
+    TWeakObjectPtr<AHBGameMode>, Mode, int32, LastClearedWave, bool, bTurretHit, double, Deadline);
+
+bool FHBVerifyArenaDefense::Update()
+{
+    if (!Test->TestTrue(TEXT("Defense finishes within the test window"), Mode.IsValid() && FPlatformTime::Seconds() < Deadline))
+    {
+        return true;
+    }
+    if (Mode->GetPhase() != EHBPhase::EHBP_Defense)
+    {
+        Test->TestEqual(TEXT("All five waves ran"), LastClearedWave, 5);
+        Test->TestEqual(TEXT("Defense victory returns to Town"), Mode->GetPhase(), EHBPhase::EHBP_Town);
+        Test->TestEqual(TEXT("Defense victory advances the cycle"), Mode->GetCycle(), 2);
+        return true;
+    }
+    if (Mode->GetWave() > LastClearedWave)
+    {
+        if (LastClearedWave == 0)
+        {
+            for (const TWeakObjectPtr<AHBEnemyCharacter>& Enemy : Mode->GetEnemies())
+            {
+                bTurretHit |= Enemy.IsValid() && Enemy->GetHealth() < Enemy->GetMaxHealth();
+            }
+            if (!bTurretHit || Mode->GetGateHealth() >= 350.0f)
+            {
+                return false;
+            }
+            Test->TestEqual(TEXT("The intact Gate shields Anima from wave AI"), Mode->GetCoreHealth(), 250.0f);
+            Test->AddInfo(TEXT("First Defense wave damaged the Gate and the built turret damaged a hostile."));
+        }
+        else
+        {
+            Test->TestEqual(TEXT("Wave spawns the expected hostiles"), Mode->GetEnemies().Num(), Mode->GetWave() + 5);
+        }
+        LastClearedWave = Mode->GetWave();
+        DefeatArenaEnemies(*Mode);
+    }
+    return false;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBDemoArenaTest, "HideInTheBox.DemoArena.PlayLoop",
+    EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBDemoArenaTest::RunTest(const FString& Parameters)
+{
+    AHBGameMode* Mode = nullptr;
+    for (const FWorldContext& Context : GEngine->GetWorldContexts())
+    {
+        if (Context.World() && Context.World()->IsGameWorld() && Context.World()->GetMapName().EndsWith(TEXT("DemoArena")))
+        {
+            Mode = Context.World()->GetAuthGameMode<AHBGameMode>();
+            break;
+        }
+    }
+    if (!this->TestTrue(TEXT("DemoArena starts in Town"), Mode && !Mode->IsGASDemo() && Mode->GetPhase() == EHBPhase::EHBP_Town))
+    {
+        return false;
+    }
+    AHBPlayerCharacter* Player = Mode->GetPlayer();
+    const AHBPlayerController* Controller = Player ? Cast<AHBPlayerController>(Player->GetController()) : nullptr;
+    UUserWidget* HUD = Controller ? Controller->GetPracticeHUD() : nullptr;
+    if (!this->TestNotNull(TEXT("The full-game Widget Blueprint is mounted"), HUD)) { return false; }
+    this->TestEqual(TEXT("Arena uses its own Widget Blueprint"), HUD->GetClass()->GetName(), FString(TEXT("WBP_DemoArenaHUD_C")));
+    this->TestEqual(TEXT("Arena shares the GAS mannequin"), Player->GetClass()->GetName(), FString(TEXT("BP_GASDemoPlayer_C")));
+    this->TestEqual(TEXT("Arena grants six abilities"), Player->GetAbilitySystemComponent()->GetActivatableAbilities().Num(), 6);
+    this->TestEqual(TEXT("Gate starts at full HP"), Mode->GetGateHealth(), 350.0f);
+    this->TestEqual(TEXT("Anima starts at full HP"), Mode->GetCoreHealth(), 250.0f);
+    Mode->AdvancePhase();
+    this->TestEqual(TEXT("Advance enters Dungeon"), Mode->GetPhase(), EHBPhase::EHBP_Dungeon);
+    if (!this->TestEqual(TEXT("Dungeon spawns six enemies"), Mode->GetEnemies().Num(), 6)) { return false; }
+    UHBPracticeWidget* GameplayPanel = Cast<UHBPracticeWidget>(HUD->GetWidgetFromName(TEXT("GameplayPanel")));
+    if (!this->TestNotNull(TEXT("Arena gameplay panel mounted"), GameplayPanel)) { return false; }
+    GameplayPanel->Refresh();
+    const UTextBlock* Phase = Cast<UTextBlock>(GameplayPanel->GetWidgetFromName(TEXT("ArenaPhase")));
+    this->TestTrue(TEXT("The HUD displays the current phase"), Phase && Phase->GetText().ToString().Contains(TEXT("DUNGEON")));
+    AHBEnemyCharacter* Enemy = Mode->GetEnemies()[0].Get();
+    if (!this->TestNotNull(TEXT("Dungeon enemy"), Enemy)) { return false; }
+    this->TestTrue(TEXT("Dungeon enemy AI is enabled"), Enemy->IsActorTickEnabled());
+    FHitResult FloorHit;
+    FCollisionQueryParams FloorQuery;
+    FloorQuery.AddIgnoredActor(Player);
+    this->TestTrue(TEXT("Dungeon floor supports mouse targeting"), Player->GetWorld()->LineTraceSingleByChannel(
+        FloorHit, Player->GetActorLocation(), Player->GetActorLocation() - FVector(0, 0, 500), ECC_GameTraceChannel1, FloorQuery));
+    const float Health = Enemy->GetHealth();
+    this->TestEqual(TEXT("Pulse casts in Dungeon"), Player->GetLoadout()->TryActivateSlot(1, nullptr, Enemy->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    this->TestEqual(TEXT("Pulse damages the live enemy through GAS"), Enemy->GetHealth(), Health - 45.0f);
+    ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDungeon(this, Mode, Enemy, FPlatformTime::Seconds() + 8.0));
+    ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDefense(this, Mode, 0, false, FPlatformTime::Seconds() + 35.0));
+    return true;
+}
 #endif

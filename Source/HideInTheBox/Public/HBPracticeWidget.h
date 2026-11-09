@@ -30,6 +30,10 @@ protected:
     UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ManaValue;
     UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> FeedbackValue;
     UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> TargetsValue;
+    UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ArenaPhase;
+    UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ArenaStats;
+    UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ArenaObjectives;
+    UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ArenaInstruction;
     UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> AbilityCount;
     UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ActiveEffects;
     UPROPERTY(meta=(BindWidgetOptional)) TObjectPtr<UTextBlock> ActiveTags;

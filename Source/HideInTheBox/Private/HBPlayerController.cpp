@@ -145,7 +145,7 @@ void AHBPlayerController::BeginPlay()
 {
     Super::BeginPlay();
     const AHBGameMode* GameMode = GetWorld()->GetAuthGameMode<AHBGameMode>();
-    if (IsLocalController() && GameMode && GameMode->IsGASDemo() && GameMode->GetPracticeHUDClass())
+    if (IsLocalController() && GameMode && GameMode->GetPracticeHUDClass())
     {
         PracticeHUD = CreateWidget<UUserWidget>(this, GameMode->GetPracticeHUDClass());
         if (PracticeHUD)

@@ -60,18 +60,54 @@ void UHBPracticeWidget::Refresh()
         return;
     }
 
+    const AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
     if (HealthBar) { HealthBar->SetPercent(Player->GetHealth() / FMath::Max(1.0f, Player->GetMaxHealth())); }
     if (ManaBar) { ManaBar->SetPercent(Player->GetLoadout()->GetManaFraction()); }
     if (HealthValue) { HealthValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f / %.0f"), Player->GetHealth(), Player->GetMaxHealth()))); }
     if (ManaValue) { ManaValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f / %.0f"), Player->GetGASMana(), Player->GetGASMaxMana()))); }
     if (FeedbackValue)
     {
-        FeedbackValue->SetText(Controller->IsPaused() ? NSLOCTEXT("GASDemo", "Paused", "Paused") : FText::FromString(Controller->GetLastActionResult()));
+        const FString Feedback = Mode && ArenaPhase && Player->IsBuilding() ? Mode->GetStatus() : Controller->GetLastActionResult();
+        FeedbackValue->SetText(Controller->IsPaused() ? NSLOCTEXT("GASDemo", "Paused", "Paused") : FText::FromString(Feedback));
     }
-    if (TargetsValue)
+    if (TargetsValue) { TargetsValue->SetText(FText::AsNumber(Mode ? Mode->GetEnemies().Num() : 0)); }
+    if (Mode && ArenaPhase)
     {
-        const AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
-        TargetsValue->SetText(FText::AsNumber(Mode ? Mode->GetEnemies().Num() : 0));
+        const bool bGamepad = Controller->IsUsingGamepad();
+        const FString Phase = Mode->GetPhase() == EHBPhase::EHBP_Defense
+            ? FString::Printf(TEXT("DEFENSE   /   WAVE %d   /   %.0fs"), Mode->GetWave(), Mode->GetWaveSeconds())
+            : FString::Printf(TEXT("%s   /   CYCLE %02d"), *Mode->GetPhaseLabel().ToUpper(), Mode->GetCycle());
+        ArenaPhase->SetText(FText::FromString(Phase));
+        if (ArenaStats)
+        {
+            ArenaStats->SetText(FText::FromString(FString::Printf(TEXT("%d STONES   /   THREAT %d"), Mode->GetStones(), Mode->GetThreat())));
+        }
+        if (ArenaObjectives)
+        {
+            ArenaObjectives->SetText(FText::FromString(FString::Printf(TEXT("GATE %.0f   /   ANIMA %.0f"), Mode->GetGateHealth(), Mode->GetCoreHealth())));
+        }
+        if (ArenaInstruction)
+        {
+            FString Instruction = Mode->GetStatus();
+            if (Player->IsBuilding())
+            {
+                const TCHAR* CycleKey = bGamepad ? TEXT("D-pad Right") : TEXT("Tab");
+                const TCHAR* CancelKey = bGamepad ? TEXT("R3") : TEXT("Space");
+                const FKey Confirm = Controller->GetSlotKey(0, bGamepad);
+                const FString ConfirmKey = Confirm == EKeys::LeftMouseButton ? TEXT("LMB") : Confirm.GetDisplayName(false).ToString();
+                Instruction = Mode->IsBuildSocketOccupied()
+                    ? FString::Printf(TEXT("Socket %d occupied. %s cycles, %s cancels."), Mode->GetBuildSocketIndex() + 1, CycleKey, CancelKey)
+                    : FString::Printf(TEXT("Socket %d. %s cycles, %s builds (30 stones), %s cancels."),
+                        Mode->GetBuildSocketIndex() + 1, CycleKey, *ConfirmKey, CancelKey);
+            }
+            ArenaInstruction->SetText(FText::FromString(Instruction));
+        }
+        if (UTextBlock* Controls = Cast<UTextBlock>(GetWidgetFromName(TEXT("Instructions"))))
+        {
+            Controls->SetText(FText::FromString(bGamepad
+                ? TEXT("D-PAD UP  PHASE    /    L3  CACHE    /    DOWN  BUILD    /    LEFT  REPAIR    /    START  PAUSE    /    LT  DIAGNOSTICS")
+                : TEXT("ENTER  PHASE    /    E  CACHE    /    B  BUILD    /    R  REPAIR    /    P  PAUSE    /    F2  DIAGNOSTICS")));
+        }
     }
 
     for (int32 SlotIndex = 0; SlotIndex < HBRuleCore::iSlotCount; ++SlotIndex)

@@ -111,18 +111,6 @@ void AHBHUD::DrawHUD()
         {
             this->Label(FString::Printf(TEXT("BUILD MODE  /  SOCKET %d  /  %s  /  30 STONES"), Mode->GetBuildSocketIndex() + 1, Mode->IsBuildSocketOccupied() ? TEXT("OCCUPIED") : TEXT("EMPTY")), 28.0f, fInfoY + 30.0f, Ice, fScale);
         }
-        if (Mode->GetPhase() == EHBPhase::EHBP_Dungeon && !Mode->IsGASDemo())
-        {
-            for (int32 iChest = 0; iChest < 3; ++iChest)
-            {
-                if (Mode->IsGreedClaimed(iChest))
-                {
-                    continue;
-                }
-                const FVector Screen = this->Project(Mode->GetGreedPosition(iChest) + FVector(0.0f, 0.0f, 60.0f));
-                if (Screen.Z > 0.0f) { this->Label(TEXT("CACHE  +30 / +3 THREAT"), Screen.X - 70.0f, Screen.Y, Gold, 0.8f); }
-            }
-        }
         for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Mode->GetEnemies())
         {
             const AHBEnemyCharacter* Enemy = Entry.Get();
@@ -138,10 +126,22 @@ void AHBHUD::DrawHUD()
             }
         }
     }
+    if (Mode->GetPhase() == EHBPhase::EHBP_Dungeon && !Mode->IsGASDemo())
+    {
+        for (int32 iChest = 0; iChest < 3; ++iChest)
+        {
+            if (Mode->IsGreedClaimed(iChest))
+            {
+                continue;
+            }
+            const FVector Screen = this->Project(Mode->GetGreedPosition(iChest) + FVector(0.0f, 0.0f, 60.0f));
+            if (Screen.Z > 0.0f) { this->Label(TEXT("CACHE  +30 / +3 THREAT"), Screen.X - 70.0f, Screen.Y, Gold, 0.8f); }
+        }
+    }
 #if !UE_BUILD_SHIPPING
     if (this->bShowDiagnostics)
     {
-        const float fY = fInfoY + 62.0f;
+        const float fY = bUseCanvasGameplay || Mode->IsGASDemo() ? fInfoY + 62.0f : 280.0f * fScale;
         const float fDebugWidth = FMath::Min(fWidth - 48.0f, 950.0f);
         const float fDebugHeight = this->iDebugPage == 0 ? 328.0f : 238.0f;
         this->Panel(24.0f, fY, fDebugWidth, fDebugHeight, Muted);

@@ -229,7 +229,7 @@ void AHBGameMode::AdvancePhase()
         }
         this->SpawnDungeon();
         this->ResetGreedCaches();
-        this->Status = TEXT("Clear all dungeon enemies. LMB attacks; RMB / B-pad uses Pulse (20 MP).");
+        this->Status = TEXT("Clear the dungeon. LMB / A attacks, RMB / B casts Pulse. E / L3 opens a nearby cache.");
     }
     else if (this->Phase == EHBPhase::EHBP_Dungeon && this->Enemies.IsEmpty())
     {
@@ -305,6 +305,10 @@ void AHBGameMode::NotifyEnemyKilled(AHBEnemyCharacter* Enemy)
     {
         this->iStones += 15;
         ++this->iThreat;
+        if (this->Enemies.Num() == 1)
+        {
+            this->Status = TEXT("Dungeon clear. Enter / D-pad Up returns to town to prepare defenses.");
+        }
     }
     this->OnEnemyDefeated.Broadcast(Enemy, PhaseAtDefeat);
 }
@@ -547,6 +551,7 @@ void AHBGameMode::ClaimNearbyGreed()
 {
     AHBPlayerCharacter* PlayerCharacter = this->GetPlayer();
     if (this->Phase != EHBPhase::EHBP_Dungeon || !PlayerCharacter || !PlayerCharacter->IsAlive() || PlayerCharacter->IsAttacking() || PlayerCharacter->IsDodging()) { return; }
+    const TCHAR* ReturnHint = this->Enemies.IsEmpty() ? TEXT(" Enter / D-pad Up returns to prep.") : TEXT("");
     for (int32 Index = 0; Index < 3; ++Index)
     {
         AActor* Cache = this->GreedCaches.IsValidIndex(Index) ? this->GreedCaches[Index] : nullptr;
@@ -555,10 +560,10 @@ void AHBGameMode::ClaimNearbyGreed()
             if (this->Greed.Claim(Index, this->iStones, this->iThreat))
             {
                 Cache->SetActorHiddenInGame(true);
-                this->Status = TEXT("Optional cache claimed: +30 stones, +3 Threat. Next defense gains one enemy per wave.");
+                this->Status = FString(TEXT("Cache claimed: +30 stones, +3 Threat.")) + ReturnHint;
                 return;
             }
         }
     }
-    this->Status = TEXT("Move within 180 cm of an optional gold cache; E / Left-stick click opens it.");
+    this->Status = FString(TEXT("Move closer to a gold cache and press E / L3 to open it.")) + ReturnHint;
 }
