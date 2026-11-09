@@ -1,4 +1,5 @@
 #include "HBAnimation.h"
+#include "HBEnemyCharacter.h"
 #include "HBPlayerCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -28,9 +29,13 @@ void UHBAnimInstance::NativeUpdateAnimation(float fDeltaSeconds)
 void UHBAnimNotifyAttackHit::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
 {
     Super::Notify(MeshComp, Animation, EventReference);
-    AHBPlayerCharacter* Player = MeshComp ? Cast<AHBPlayerCharacter>(MeshComp->GetOwner()) : nullptr;
-    if (Player)
+    AActor* Owner = MeshComp ? MeshComp->GetOwner() : nullptr;
+    if (AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(Owner))
     {
         Player->DeliverAnimationHit(Animation);
+    }
+    else if (AHBEnemyCharacter* Enemy = Cast<AHBEnemyCharacter>(Owner))
+    {
+        Enemy->DeliverAnimationHit(Animation);
     }
 }

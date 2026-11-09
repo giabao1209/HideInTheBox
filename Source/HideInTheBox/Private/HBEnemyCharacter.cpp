@@ -1,5 +1,9 @@
 #include "HBEnemyCharacter.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "HBGameMode.h"
+#include "HBDebugSubsystem.h"
 #include "HBPracticeWidget.h"
 #include "Components/WidgetComponent.h"
 #include "HBPlayerCharacter.h"
@@ -56,6 +60,11 @@ void AHBEnemyCharacter::Tick(float fDeltaSeconds)
     {
         return;
     }
+    const UAnimInstance* Anim = AttackMontage ? GetMesh()->GetAnimInstance() : nullptr;
+    if (Anim && Anim->Montage_IsActive(AttackMontage))
+    {
+        return;
+    }
     AHBPlayerCharacter* Player = this->Mode->GetPlayer();
     AActor* Target = nullptr;
     float fRange = 125.0f;
@@ -88,8 +97,41 @@ void AHBEnemyCharacter::Tick(float fDeltaSeconds)
     if (this->GetWorld()->GetTimeSeconds() >= this->fNextAttackTime)
     {
         this->fNextAttackTime = this->GetWorld()->GetTimeSeconds() + 1.0f;
-        UGameplayStatics::ApplyDamage(Target, 8.0f, this->GetController(), this, UDamageType::StaticClass());
+        if (AttackMontage)
+        {
+            PendingAttackTarget = Target;
+            PendingAttackRange = fRange;
+            if (PlayAnimMontage(AttackMontage) > 0.0f)
+            {
+                return;
+            }
+            PendingAttackTarget.Reset();
+        }
+        ApplyMeleeDamage(Target);
     }
+}
+
+void AHBEnemyCharacter::DeliverAnimationHit(UAnimSequenceBase* Animation)
+{
+    const UAnimInstance* Anim = GetMesh()->GetAnimInstance();
+    if (!AttackMontage || Animation != AttackMontage || !Anim || !Anim->Montage_IsActive(AttackMontage) ||
+        !HasAuthority() || !IsAlive() || !Mode.IsValid())
+    {
+        return;
+    }
+
+    AActor* Target = PendingAttackTarget.Get();
+    PendingAttackTarget.Reset();
+    if (IsValid(Target) && FVector::DistSquaredXY(GetActorLocation(), Target->GetActorLocation()) <= FMath::Square(PendingAttackRange))
+    {
+        ApplyMeleeDamage(Target);
+        UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Enemy melee hit via montage notify"));
+    }
+}
+
+void AHBEnemyCharacter::ApplyMeleeDamage(AActor* Target)
+{
+    UGameplayStatics::ApplyDamage(Target, 8.0f, GetController(), this, UDamageType::StaticClass());
 }
 
 void AHBEnemyCharacter::OnDeath()

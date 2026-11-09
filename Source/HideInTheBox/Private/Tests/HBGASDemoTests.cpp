@@ -231,14 +231,20 @@ namespace
     }
 }
 
-DEFINE_LATENT_AUTOMATION_COMMAND_FOUR_PARAMETER(FHBVerifyArenaDungeon, FAutomationTestBase*, Test,
-    TWeakObjectPtr<AHBGameMode>, Mode, TWeakObjectPtr<AHBEnemyCharacter>, Enemy, double, Deadline);
+DEFINE_LATENT_AUTOMATION_COMMAND_FIVE_PARAMETER(FHBVerifyArenaDungeon, FAutomationTestBase*, Test,
+    TWeakObjectPtr<AHBGameMode>, Mode, TWeakObjectPtr<AHBEnemyCharacter>, Enemy, bool, bSawWindup, double, Deadline);
 
 bool FHBVerifyArenaDungeon::Update()
 {
     AHBPlayerCharacter* Player = Mode.IsValid() ? Mode->GetPlayer() : nullptr;
     if (Player && Player->GetHealth() >= Player->GetMaxHealth() && FPlatformTime::Seconds() < Deadline)
     {
+        for (const TWeakObjectPtr<AHBEnemyCharacter>& Attacker : Mode->GetEnemies())
+        {
+            const UAnimInstance* Anim = Attacker.IsValid() ? Attacker->GetMesh()->GetAnimInstance() : nullptr;
+            const UAnimMontage* ActiveMontage = Anim ? Anim->GetCurrentActiveMontage() : nullptr;
+            bSawWindup |= ActiveMontage && ActiveMontage->GetFName() == TEXT("AM_GAS_BasicStrike");
+        }
         return false;
     }
     if (!Test->TestTrue(TEXT("Dungeon AI reaches and damages the player"), Enemy.IsValid() &&
@@ -246,6 +252,11 @@ bool FHBVerifyArenaDungeon::Update()
     {
         return true;
     }
+    Test->TestTrue(TEXT("Enemy montage winds up before melee damage"), bSawWindup);
+    TArray<FString> CombatEvents;
+    Mode->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->GetRecent(CombatEvents, 24);
+    Test->TestTrue(TEXT("Enemy melee damage comes from the montage notify"),
+        FString::Join(CombatEvents, TEXT("\n")).Contains(TEXT("Enemy melee hit via montage notify")));
     DefeatArenaEnemies(*Mode);
     Test->TestEqual(TEXT("Six dungeon kills earn 90 stones"), Mode->GetStones(), 90);
     Test->TestEqual(TEXT("Six dungeon kills earn six threat"), Mode->GetThreat(), 6);
@@ -347,7 +358,10 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     this->TestTrue(TEXT("The HUD displays the current phase"), Phase && Phase->GetText().ToString().Contains(TEXT("DUNGEON")));
     AHBEnemyCharacter* Enemy = Mode->GetEnemies()[0].Get();
     if (!this->TestNotNull(TEXT("Dungeon enemy"), Enemy)) { return false; }
+    this->TestEqual(TEXT("Dungeon spawns the combat enemy Blueprint"), Enemy->GetClass()->GetName(), FString(TEXT("BP_DemoArenaEnemy_C")));
     this->TestTrue(TEXT("Dungeon enemy AI is enabled"), Enemy->IsActorTickEnabled());
+    const FVector MeshFacing = Enemy->GetMesh()->GetComponentQuat().RotateVector(FVector::RightVector);
+    this->TestTrue(TEXT("Manny faces the same direction as the enemy actor"), FVector::DotProduct(MeshFacing, Enemy->GetActorForwardVector()) > 0.99f);
     FHitResult FloorHit;
     FCollisionQueryParams FloorQuery;
     FloorQuery.AddIgnoredActor(Player);
@@ -356,7 +370,7 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     const float Health = Enemy->GetHealth();
     this->TestEqual(TEXT("Pulse casts in Dungeon"), Player->GetLoadout()->TryActivateSlot(1, nullptr, Enemy->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
     this->TestEqual(TEXT("Pulse damages the live enemy through GAS"), Enemy->GetHealth(), Health - 45.0f);
-    ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDungeon(this, Mode, Enemy, FPlatformTime::Seconds() + 8.0));
+    ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDungeon(this, Mode, Enemy, false, FPlatformTime::Seconds() + 8.0));
     ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDefense(this, Mode, 0, false, FPlatformTime::Seconds() + 35.0));
     return true;
 }
