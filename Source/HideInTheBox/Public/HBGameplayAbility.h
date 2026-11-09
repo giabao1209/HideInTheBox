@@ -5,13 +5,16 @@
 #include "HBLoadout.h"
 #include "HBGameplayAbility.generated.h"
 
+class AHBPlayerCharacter;
+
 /** One native ability implementation shared by six registered GAS specs. */
-UCLASS(Abstract)
+UCLASS(Abstract, Blueprintable)
 class HIDEINTHEBOX_API UHBGameplayAbility : public UGameplayAbility
 {
     GENERATED_BODY()
 public:
     UHBGameplayAbility();
+    EHBAbility GetAbilityKind() const { return AbilityKind; }
 
     virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle,
         const FGameplayAbilityActorInfo* ActorInfo,
@@ -31,6 +34,8 @@ public:
         const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
         const FGameplayEventData* TriggerEventData) override;
 protected:
+    UFUNCTION(BlueprintImplementableEvent, Category="Ability", meta=(DisplayName="On Ability Committed"))
+    void OnAbilityCommitted(AHBPlayerCharacter* Player);
     EHBAbility AbilityKind = EHBAbility::EHBA_Basic;
 };
 
@@ -83,3 +88,4 @@ public:
 };
 /** Tags registered in Config/DefaultGameplayTags.ini. Shared across reassigned slots. */
 HIDEINTHEBOX_API FGameplayTag HBGetCooldownTag(EHBAbility Ability);
+TSubclassOf<UHBGameplayAbility> HBGetNativeAbilityClass(EHBAbility Ability);

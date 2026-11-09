@@ -27,6 +27,8 @@ AHBPlayerCharacter::AHBPlayerCharacter()
     this->PrimaryActorTick.bCanEverTick = true;
     this->Tint = FLinearColor(0.1f, 0.7f, 1.0f);
     this->fMaxHealth = 220.0f;
+    ManaEffectClass = UHBGE_ManaDelta::StaticClass();
+    CooldownEffectClass = UHBGE_Cooldown::StaticClass();
     this->CameraBoom = this->CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     this->CameraBoom->SetupAttachment(this->GetRootComponent());
     this->CameraBoom->SetUsingAbsoluteRotation(true);
@@ -55,16 +57,7 @@ bool AHBPlayerCharacter::TryActivateGASAction(EHBAbility Ability, const FHBAbili
     PendingGASAim = AimPoint;
     bPendingGASInPlace = bInPlace;
 
-    TSubclassOf<UGameplayAbility> AbilityClass;
-    switch (Ability)
-    {
-    case EHBAbility::EHBA_Basic: AbilityClass = UHBGA_Basic::StaticClass(); break;
-    case EHBAbility::EHBA_Pulse: AbilityClass = UHBGA_Pulse::StaticClass(); break;
-    case EHBAbility::EHBA_Dodge: AbilityClass = UHBGA_Dodge::StaticClass(); break;
-    case EHBAbility::EHBA_Guard: AbilityClass = UHBGA_Guard::StaticClass(); break;
-    case EHBAbility::EHBA_Mend: AbilityClass = UHBGA_Mend::StaticClass(); break;
-    case EHBAbility::EHBA_Bolt: AbilityClass = UHBGA_Bolt::StaticClass(); break;
-    }
+    const TSubclassOf<UHBGameplayAbility> AbilityClass = Loadout->GetAbilityClass(Ability);
     const bool bActivated = AbilityClass && AbilitySystem->TryActivateAbilityByClass(AbilityClass);
     const bool bAccepted = bActivated && bLastGASActivationAccepted;
     bGASContextReady = false;
@@ -147,7 +140,7 @@ void AHBPlayerCharacter::ApplyGASManaDelta(float Delta)
     {
         return;
     }
-    FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(UHBGE_ManaDelta::StaticClass(), 1.0f, AbilitySystem->MakeEffectContext());
+    FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(ManaEffectClass, 1.0f, AbilitySystem->MakeEffectContext());
     if (Effect.IsValid())
     {
         Effect.Data->SetSetByCallerMagnitude(FName(TEXT("Magnitude")), Delta);
@@ -161,7 +154,7 @@ void AHBPlayerCharacter::ApplyGASCooldown(EHBAbility Ability, float Duration)
     {
         return;
     }
-    FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(UHBGE_Cooldown::StaticClass(), 1.0f, AbilitySystem->MakeEffectContext());
+    FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(CooldownEffectClass, 1.0f, AbilitySystem->MakeEffectContext());
     if (Effect.IsValid())
     {
         Effect.Data->SetDuration(Duration, true);
@@ -756,12 +749,11 @@ void AHBPlayerCharacter::BeginPlay()
     Super::BeginPlay();
     if (HasAuthority() && AbilitySystem)
     {
-        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Basic::StaticClass(), 1));
-        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Pulse::StaticClass(), 1));
-        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Dodge::StaticClass(), 1));
-        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Guard::StaticClass(), 1));
-        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Mend::StaticClass(), 1));
-        AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_Bolt::StaticClass(), 1));
+        for (int32 Index = 0; Index < HBRuleCore::iAbilityCount; ++Index)
+        {
+            const TSubclassOf<UHBGameplayAbility> AbilityClass = Loadout->GetAbilityClass(static_cast<EHBAbility>(Index));
+            AbilitySystem->GiveAbility(FGameplayAbilitySpec(AbilityClass, 1));
+        }
         UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("GAS: six gameplay abilities granted on server"));
     }
     const UAnimInstance* Anim = this->GetMesh()->GetAnimInstance();

@@ -15,6 +15,7 @@
 AHBCombatant::AHBCombatant()
 {
     bReplicates = true;
+    HealthEffectClass = UHBGE_HealthDelta::StaticClass();
     AbilitySystem = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystem"));
     AbilitySystem->SetIsReplicated(true);
     AbilitySystem->SetReplicationMode(EGameplayEffectReplicationMode::Full);
@@ -88,7 +89,7 @@ float AHBCombatant::ApplyHealthDelta(float Delta)
         return 0.0f;
     }
     const float OldHealth = GetHealth();
-    FGameplayEffectSpecHandle Spec = AbilitySystem->MakeOutgoingSpec(UHBGE_HealthDelta::StaticClass(), 1.0f, AbilitySystem->MakeEffectContext());
+    FGameplayEffectSpecHandle Spec = AbilitySystem->MakeOutgoingSpec(HealthEffectClass, 1.0f, AbilitySystem->MakeEffectContext());
     if (!Spec.IsValid())
     {
         return 0.0f;

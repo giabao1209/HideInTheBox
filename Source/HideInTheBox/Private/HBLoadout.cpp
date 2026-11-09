@@ -1,4 +1,5 @@
 #include "HBLoadout.h"
+#include "HBGameplayAbility.h"
 #include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
 #include "Engine/World.h"
@@ -15,6 +16,7 @@ UHBLoadoutData::UHBLoadoutData()
     {
         FHBAbilitySpec Spec;
         Spec.Name = FText::FromString(Names[iIndex]);
+        Spec.AbilityClass = HBGetNativeAbilityClass(static_cast<EHBAbility>(iIndex));
         Spec.fManaCost = Costs[iIndex];
         Spec.fCooldown = Cooldowns[iIndex];
         Spec.fPower = Powers[iIndex];
@@ -53,6 +55,17 @@ const FHBAbilitySpec* UHBLoadoutComponent::FindSpec(EHBAbility Ability) const
 {
     const int32 iIndex = static_cast<int32>(Ability);
     return this->Definition && this->Definition->Abilities.IsValidIndex(iIndex) ? &this->Definition->Abilities[iIndex] : nullptr;
+}
+
+TSubclassOf<UHBGameplayAbility> UHBLoadoutComponent::GetAbilityClass(EHBAbility Ability) const
+{
+    const FHBAbilitySpec* Spec = FindSpec(Ability);
+    if (Spec && Spec->AbilityClass && !Spec->AbilityClass->HasAnyClassFlags(CLASS_Abstract) &&
+        Spec->AbilityClass.GetDefaultObject()->GetAbilityKind() == Ability)
+    {
+        return Spec->AbilityClass;
+    }
+    return HBGetNativeAbilityClass(Ability);
 }
 
 bool UHBLoadoutComponent::AssignAbilityToSlot(int32 iSlot, EHBAbility Ability)

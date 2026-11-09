@@ -6,6 +6,7 @@
 class UStaticMeshComponent;
 class UAbilitySystemComponent;
 class UHBAttributes;
+class UGameplayEffect;
 struct FOnAttributeChangeData;
 
 UCLASS()
@@ -29,6 +30,7 @@ protected:
     void OnHealthAttributeChanged(const FOnAttributeChangeData& Data);
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="GAS") TObjectPtr<UAbilitySystemComponent> AbilitySystem;
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="GAS") TObjectPtr<UHBAttributes> Attributes;
+    UPROPERTY(EditDefaultsOnly, Category="GAS") TSubclassOf<UGameplayEffect> HealthEffectClass;
     UPROPERTY(EditDefaultsOnly, Category="Combat", meta=(ClampMin="1")) float fMaxHealth = 100.0f;
     UPROPERTY(VisibleAnywhere, Category="Appearance") TObjectPtr<UStaticMeshComponent> Placeholder;
     UPROPERTY(VisibleAnywhere, Category="Appearance") TObjectPtr<UStaticMeshComponent> FacingMarker;

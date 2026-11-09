@@ -66,6 +66,8 @@ public:
     int32 GetHitCount() const { return this->iHitCount; }
     AHBEnemyCharacter* GetAttackTarget() const;
 protected:
+    UPROPERTY(EditDefaultsOnly, Category="GAS") TSubclassOf<UGameplayEffect> ManaEffectClass;
+    UPROPERTY(EditDefaultsOnly, Category="GAS") TSubclassOf<UGameplayEffect> CooldownEffectClass;
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void OnDeath() override;

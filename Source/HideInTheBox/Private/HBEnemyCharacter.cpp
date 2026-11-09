@@ -1,5 +1,7 @@
 #include "HBEnemyCharacter.h"
 #include "HBGameMode.h"
+#include "HBPracticeWidget.h"
+#include "Components/WidgetComponent.h"
 #include "HBPlayerCharacter.h"
 #include "HBStructure.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -23,6 +25,22 @@ void AHBEnemyCharacter::BeginPlay()
     if (this->Mode.IsValid())
     {
         this->Mode->RegisterEnemy(this);
+    }
+    if (PracticeHealthWidgetClass && GetNetMode() != NM_DedicatedServer)
+    {
+        UWidgetComponent* HealthDisplay = NewObject<UWidgetComponent>(this, TEXT("PracticeHealthDisplay"));
+        HealthDisplay->SetupAttachment(GetRootComponent());
+        HealthDisplay->SetRelativeLocation(FVector(0.0f, 0.0f, 112.0f));
+        HealthDisplay->SetWidgetSpace(EWidgetSpace::Screen);
+        HealthDisplay->SetDrawSize(FVector2D(116.0, 24.0));
+        HealthDisplay->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        HealthDisplay->SetWidgetClass(PracticeHealthWidgetClass);
+        HealthDisplay->RegisterComponent();
+        HealthDisplay->InitWidget();
+        if (UHBGASTargetWidget* Widget = Cast<UHBGASTargetWidget>(HealthDisplay->GetUserWidgetObject()))
+        {
+            Widget->SetCombatant(this);
+        }
     }
 }
 

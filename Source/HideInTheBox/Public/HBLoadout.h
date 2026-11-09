@@ -5,6 +5,7 @@
 #include "HBRuleCore.h"
 #include "HBLoadout.generated.h"
 class AHBEnemyCharacter;
+class UHBGameplayAbility;
 
 UENUM(BlueprintType)
 enum class EHBAbility : uint8
@@ -23,6 +24,7 @@ struct FHBAbilitySpec
 {
     GENERATED_BODY()
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability") FText Name;
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability") TSubclassOf<UHBGameplayAbility> AbilityClass;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability", meta=(ClampMin="0")) float fManaCost = 0.0f;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability", meta=(ClampMin="0")) float fCooldown = 0.0f;
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Ability", meta=(ClampMin="0")) float fPower = 0.0f;
@@ -63,6 +65,7 @@ public:
     void Regenerate(float fDeltaSeconds);
     void ResetResources();
     const FHBAbilitySpec* FindSpec(EHBAbility Ability) const;
+    TSubclassOf<UHBGameplayAbility> GetAbilityClass(EHBAbility Ability) const;
     UPROPERTY(BlueprintAssignable, Category="Loadout") FHBActionResolved OnActionResolved;
 protected:
     virtual void BeginPlay() override;

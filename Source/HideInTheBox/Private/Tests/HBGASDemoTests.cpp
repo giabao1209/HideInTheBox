@@ -2,7 +2,13 @@
 #include "HBPlayerCharacter.h"
 #include "HBEnemyCharacter.h"
 #include "HBGameplayAbility.h"
+#include "HBPlayerController.h"
+#include "HBPracticeWidget.h"
 #include "AbilitySystemComponent.h"
+#include "Components/Button.h"
+#include "Components/ProgressBar.h"
+#include "Components/TextBlock.h"
+#include "Components/WidgetComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
@@ -22,7 +28,7 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
             if (Mode && Mode->IsGASDemo()) { break; }
         }
     }
-    if (!this->TestTrue(TEXT("Run in GASDemoArena with -game"), Mode && Mode->IsGASDemo())) { return false; }
+    if (!this->TestTrue(TEXT("Run in the Widget Blueprint practice arena with -game"), Mode && Mode->IsGASDemo())) { return false; }
     Mode->ResetGASDemo();
     AHBPlayerCharacter* Player = Mode->GetPlayer();
     if (!this->TestNotNull(TEXT("Player spawned"), Player)) { return false; }
@@ -33,18 +39,37 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
         FloorHit, Player->GetActorLocation(), Player->GetActorLocation() - FVector(0.0f, 0.0f, 500.0f), ECC_GameTraceChannel1, FloorQuery));
     UHBLoadoutComponent* Loadout = Player->GetLoadout();
     UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();
+    const AHBPlayerController* Controller = Cast<AHBPlayerController>(Player->GetController());
+    UUserWidget* HUD = Controller ? Controller->GetPracticeHUD() : nullptr;
+    if (!this->TestNotNull(TEXT("Widget Blueprint HUD mounted"), HUD)) { return false; }
+    this->TestEqual(TEXT("HUD class comes from asset"), HUD->GetClass()->GetName(), FString(TEXT("WBP_GASDemoHUD_C")));
+    UHBPracticeWidget* GameplayPanel = Cast<UHBPracticeWidget>(HUD->GetWidgetFromName(TEXT("GameplayPanel")));
+    UHBPracticeWidget* InspectorPanel = Cast<UHBPracticeWidget>(HUD->GetWidgetFromName(TEXT("InspectorPanel")));
+    if (!this->TestNotNull(TEXT("Gameplay widget mounted"), GameplayPanel) ||
+        !this->TestNotNull(TEXT("Inspector widget mounted"), InspectorPanel)) { return false; }
+    this->TestEqual(TEXT("Player uses the demo Blueprint"), Player->GetClass()->GetName(), FString(TEXT("BP_GASDemoPlayer_C")));
+    this->TestEqual(TEXT("Pulse is granted from the Data Asset"), Loadout->GetAbilityClass(EHBAbility::EHBA_Pulse)->GetName(), FString(TEXT("GA_GASDemo_Pulse_C")));
     this->TestEqual(TEXT("Six granted abilities"), ASC->GetActivatableAbilities().Num(), 6);
     this->TestEqual(TEXT("Three practice targets"), Mode->GetEnemies().Num(), 3);
     if (Mode->GetEnemies().Num() != 3) { return false; }
     AHBEnemyCharacter* Target = Mode->GetEnemies()[0].Get();
     if (!this->TestNotNull(TEXT("Target spawned"), Target)) { return false; }
     this->TestFalse(TEXT("Target AI disabled"), Target->IsActorTickEnabled());
+    UWidgetComponent* TargetHealthComponent = Target->FindComponentByClass<UWidgetComponent>();
+    this->TestTrue(TEXT("Target uses its Widget Blueprint"), TargetHealthComponent && Cast<UHBGASTargetWidget>(TargetHealthComponent->GetUserWidgetObject()));
     const FVector Aim = Target->GetActorLocation();
     const float TargetHealth = Target->GetHealth();
     this->TestEqual(TEXT("Pulse accepted"), Loadout->TryActivateSlot(1, nullptr, Aim, false), EHBActionResult::EHBAR_Accepted);
     this->TestEqual(TEXT("Pulse spends 20 mana"), Player->GetGASMana(), 80.0f);
     this->TestEqual(TEXT("Pulse GE deals 45 damage"), Target->GetHealth(), TargetHealth - 45.0f);
     this->TestTrue(TEXT("Pulse tag granted"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Pulse)));
+    const TArray<FActiveGameplayEffectHandle> Cooldowns = ASC->GetActiveEffects(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(
+        FGameplayTagContainer(HBGetCooldownTag(EHBAbility::EHBA_Pulse))));
+    const FActiveGameplayEffect* Cooldown = Cooldowns.IsEmpty() ? nullptr : ASC->GetActiveGameplayEffect(Cooldowns[0]);
+    this->TestTrue(TEXT("Blueprint cooldown effect is active"), Cooldown && Cooldown->Spec.Def->GetClass()->GetName() == TEXT("GE_GASDemo_Cooldown_C"));
+    InspectorPanel->Refresh();
+    UTextBlock* ActiveTags = Cast<UTextBlock>(InspectorPanel->GetWidgetFromName(TEXT("ActiveTags")));
+    this->TestTrue(TEXT("Inspector displays the live tag"), ActiveTags && ActiveTags->GetText().ToString().Contains(TEXT("Cooldown.Pulse")));
     this->TestEqual(TEXT("Immediate recast rejected"), Loadout->TryActivateSlot(1, nullptr, Aim, false), EHBActionResult::EHBAR_Cooldown);
     this->TestEqual(TEXT("Rejected cast spends no mana"), Player->GetGASMana(), 80.0f);
     Loadout->AssignAbilityToSlot(2, EHBAbility::EHBA_Pulse);
@@ -56,8 +81,13 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestFalse(TEXT("Reset clears cooldown tag"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Pulse)));
     this->TestEqual(TEXT("Full-health Mend rejected"), Loadout->TryActivateSlot(4, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_InvalidTarget);
     this->TestEqual(TEXT("Invalid Mend costs no mana"), Player->GetGASMana(), 100.0f);
-    Mode->DamageGASDemoPlayer();
+    UButton* DamageButton = Cast<UButton>(GameplayPanel->GetWidgetFromName(TEXT("DamageButton")));
+    if (!this->TestNotNull(TEXT("Widget damage button exists"), DamageButton)) { return false; }
+    DamageButton->OnClicked.Broadcast();
     this->TestEqual(TEXT("Damage helper removes 60 HP"), Player->GetHealth(), Player->GetMaxHealth() - 60.0f);
+    GameplayPanel->Refresh();
+    UProgressBar* HealthBar = Cast<UProgressBar>(GameplayPanel->GetWidgetFromName(TEXT("HealthBar")));
+    this->TestTrue(TEXT("Widget health bar reflects damage"), HealthBar && FMath::IsNearlyEqual(HealthBar->GetPercent(), Player->GetHealth() / Player->GetMaxHealth()));
     this->TestEqual(TEXT("Mend accepted"), Loadout->TryActivateSlot(4, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
     this->TestEqual(TEXT("Mend heals 45 HP"), Player->GetHealth(), Player->GetMaxHealth() - 15.0f);
     this->TestEqual(TEXT("Mend spends 25 MP"), Player->GetGASMana(), 75.0f);

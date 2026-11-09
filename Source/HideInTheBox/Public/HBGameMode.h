@@ -8,6 +8,7 @@ class AHBPlayerCharacter;
 class AHBEnemyCharacter;
 class AHBStructure;
 class AActor;
+class UUserWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FHBPhaseChanged, EHBPhase, PreviousPhase, EHBPhase, NewPhase);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FHBWaveStarted, int32, WaveIndex, int32, EnemyCount);
@@ -22,6 +23,7 @@ public:
     AHBGameMode();
     virtual void StartPlay() override;
     bool IsGASDemo() const { return this->bGASDemo; }
+    TSubclassOf<UUserWidget> GetPracticeHUDClass() const { return PracticeHUDClass; }
     void ResetGASDemo();
     void DamageGASDemoPlayer();
     void RefillGASDemoMana();
@@ -68,6 +70,7 @@ public:
 
 protected:
     UPROPERTY(EditDefaultsOnly, Category="GAS Demo") bool bGASDemo = false;
+    UPROPERTY(EditDefaultsOnly, Category="GAS Demo") TSubclassOf<UUserWidget> PracticeHUDClass;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     UPROPERTY(EditDefaultsOnly, Category="Demo|Classes") TSubclassOf<AHBEnemyCharacter> EnemyClass;
     UPROPERTY(EditDefaultsOnly, Category="Demo|Classes") TSubclassOf<AHBStructure> TurretClass;

@@ -10,6 +10,7 @@ class UInputAction;
 class UInputMappingContext;
 class UEnhancedInputComponent;
 class AHBIndicator;
+class UUserWidget;
 
 UCLASS()
 class HIDEINTHEBOX_API AHBPlayerController : public APlayerController
@@ -24,6 +25,7 @@ public:
     void ResetTransientInput();
     bool IsUsingGamepad() const { return this->bGamepad; }
     FString GetLastActionResult() const { return this->LastActionResult; }
+    UUserWidget* GetPracticeHUD() const { return PracticeHUD; }
     UFUNCTION(BlueprintCallable, Category="Input") bool RebindSlotKey(int32 iSlot, FKey NewKey, bool bForGamepad);
     UFUNCTION(BlueprintCallable, Category="Input") bool SaveBindings();
     UFUNCTION(BlueprintPure, Category="Input") FKey GetSlotKey(int32 iSlot, bool bForGamepad) const;
@@ -70,6 +72,7 @@ private:
     UPROPERTY(Transient) TObjectPtr<UInputAction> KeyboardMoveAction;
     UPROPERTY(Transient) TObjectPtr<UInputAction> AimAction;
     UPROPERTY(Transient) TObjectPtr<AHBIndicator> BuildPreview;
+    UPROPERTY(Transient) TObjectPtr<UUserWidget> PracticeHUD;
     TWeakObjectPtr<UEnhancedInputComponent> BoundInput;
     TArray<uint32> BindingHandles;
     FTimerHandle DebugCheckTimer;

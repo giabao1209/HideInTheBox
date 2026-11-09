@@ -7,6 +7,7 @@
 #include "HBInputSave.h"
 #include "HBLoadout.h"
 #include "HBHUD.h"
+#include "Blueprint/UserWidget.h"
 #include "HideInTheBox.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -143,6 +144,15 @@ void AHBPlayerController::SetupInputComponent()
 void AHBPlayerController::BeginPlay()
 {
     Super::BeginPlay();
+    const AHBGameMode* GameMode = GetWorld()->GetAuthGameMode<AHBGameMode>();
+    if (IsLocalController() && GameMode && GameMode->IsGASDemo() && GameMode->GetPracticeHUDClass())
+    {
+        PracticeHUD = CreateWidget<UUserWidget>(this, GameMode->GetPracticeHUDClass());
+        if (PracticeHUD)
+        {
+            PracticeHUD->AddToViewport();
+        }
+    }
 #if !UE_BUILD_SHIPPING
     this->GetWorldTimerManager().SetTimer(this->DebugCheckTimer, this, &AHBPlayerController::HBDebugCheck, 0.2f, false);
 #endif
@@ -602,6 +612,10 @@ void AHBPlayerController::HBCameraYaw(float Yaw)
 
 void AHBPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    if (PracticeHUD)
+    {
+        PracticeHUD->RemoveFromParent();
+    }
     this->GetWorldTimerManager().ClearTimer(this->DebugCheckTimer);
     IPlatformInputDeviceMapper::Get().GetOnInputDeviceConnectionChange().Remove(this->ConnectionHandle);
     this->CleanupMappingsAndBindings();

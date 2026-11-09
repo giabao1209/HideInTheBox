@@ -94,7 +94,25 @@ void UHBGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle
     const bool bExecuted = Player->ExecutePendingGAS(AbilityKind);
     const bool bCommitted = bExecuted && CommitAbility(Handle, ActorInfo, ActivationInfo);
     Player->SetLastGASActivationResult(bCommitted);
+    if (bCommitted)
+    {
+        OnAbilityCommitted(Player);
+    }
     EndAbility(Handle, ActorInfo, ActivationInfo, true, !bCommitted);
+}
+
+TSubclassOf<UHBGameplayAbility> HBGetNativeAbilityClass(EHBAbility Ability)
+{
+    switch (Ability)
+    {
+    case EHBAbility::EHBA_Basic: return UHBGA_Basic::StaticClass();
+    case EHBAbility::EHBA_Pulse: return UHBGA_Pulse::StaticClass();
+    case EHBAbility::EHBA_Dodge: return UHBGA_Dodge::StaticClass();
+    case EHBAbility::EHBA_Guard: return UHBGA_Guard::StaticClass();
+    case EHBAbility::EHBA_Mend: return UHBGA_Mend::StaticClass();
+    case EHBAbility::EHBA_Bolt: return UHBGA_Bolt::StaticClass();
+    }
+    return nullptr;
 }
 
 UHBGA_Basic::UHBGA_Basic() { AbilityKind = EHBAbility::EHBA_Basic; }

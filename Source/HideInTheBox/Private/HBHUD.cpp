@@ -47,91 +47,95 @@ void AHBHUD::DrawHUD()
     const float fWidth = this->Canvas->ClipX;
     const float fHeight = this->Canvas->ClipY;
     const float fScale = FMath::Clamp(fWidth / 1600.0f, 0.7f, 1.2f);
-    this->Panel(24.0f, 24.0f, 300.0f * fScale, 105.0f * fScale, Ice);
-    this->Label(Mode->IsGASDemo() ? TEXT("GAS PRACTICE ARENA") : TEXT("HIDE IN THE BOX"), 40.0f, 36.0f, Ice, 1.1f * fScale);
-    this->Label(Mode->IsGASDemo() ? TEXT("Ability -> Effect -> Attribute / Tag") : FString::Printf(TEXT("%s   /   CYCLE %02d"), *Mode->GetPhaseLabel(), Mode->GetCycle()), 40.0f, 64.0f * fScale, FLinearColor::White, fScale);
-    this->Label(Mode->IsGASDemo() ? FString::Printf(TEXT("%d PRACTICE TARGETS | F6 TO RESET"), Mode->GetEnemies().Num()) : FString::Printf(TEXT("WAVE %d / 5    %.0fs    %d HOSTILES"), Mode->GetWave(), Mode->GetWaveSeconds(), Mode->GetEnemies().Num()), 40.0f, 93.0f * fScale, Muted, fScale);
-    if (Mode->IsGASDemo())
-    {
-        UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();
-        FGameplayTagContainer OwnedTags;
-        ASC->GetOwnedGameplayTags(OwnedTags);
-        TArray<FGameplayTag> TagArray;
-        OwnedTags.GetGameplayTagArray(TagArray);
-        const float X = fWidth - 310.0f * fScale - 24.0f;
-        this->Panel(X, 24.0f, 310.0f * fScale, 180.0f * fScale, Gold);
-        this->Label(TEXT("LIVE ABILITY SYSTEM"), X + 14.0f, 36.0f, Gold, fScale);
-        this->Label(FString::Printf(TEXT("Granted abilities: %d | Active GEs: %d"), ASC->GetActivatableAbilities().Num(), ASC->GetActiveEffects(FGameplayEffectQuery()).Num()), X + 14.0f, 60.0f, Ice, 0.85f * fScale);
-        this->Label(TagArray.IsEmpty() ? TEXT("Tags: none (ready)") : TEXT("Active tags:"), X + 14.0f, 82.0f, Muted, 0.85f * fScale);
-        for (int32 Index = 0; Index < FMath::Min(TagArray.Num(), 5); ++Index)
-        {
-            this->Label(TagArray[Index].ToString(), X + 14.0f, 103.0f + Index * 18.0f * fScale, Ice, 0.85f * fScale);
-        }
-    }
-    else
-    {
-    this->Panel(fWidth - 280.0f * fScale - 24.0f, 24.0f, 280.0f * fScale, 105.0f * fScale, Gold);
-    const float fRightX = fWidth - 280.0f * fScale - 8.0f;
-    this->Label(FString::Printf(TEXT("%d   MAGIC STONES"), Mode->GetStones()), fRightX, 38.0f, Gold, fScale);
-    this->Label(FString::Printf(TEXT("THREAT %d   /   NEXT WAVE %d"), Mode->GetThreat(), HBRules::GetWaveEnemyCount(FMath::Max(1, Mode->GetWave()), Mode->GetThreat())), fRightX, 68.0f * fScale, Muted, fScale);
-    this->Label(FString::Printf(TEXT("GATE %.0f    ANIMA %.0f"), Mode->GetGateHealth(), Mode->GetCoreHealth()), fRightX, 94.0f * fScale, Ice, fScale);
-    }
-
-    const float fSlotWidth = 110.0f * fScale;
-    const float fBarWidth = 6.0f * fSlotWidth + 5.0f * 8.0f;
-    const float fLeft = (fWidth - fBarWidth) * 0.5f;
-    const float fTop = fHeight - 138.0f * fScale;
-    this->DrawRect(FLinearColor(0.1f, 0.025f, 0.035f), fLeft, fTop - 28.0f, fBarWidth * 0.5f - 8.0f, 5.0f);
-    this->DrawRect(FLinearColor(0.9f, 0.2f, 0.3f), fLeft, fTop - 28.0f, (fBarWidth * 0.5f - 8.0f) * FMath::Clamp(Player->GetHealth() / Player->GetMaxHealth(), 0.0f, 1.0f), 5.0f);
-    this->DrawRect(FLinearColor(0.03f, 0.05f, 0.14f), fLeft + fBarWidth * 0.5f, fTop - 28.0f, fBarWidth * 0.5f, 5.0f);
-    this->DrawRect(Ice, fLeft + fBarWidth * 0.5f, fTop - 28.0f, fBarWidth * 0.5f * Player->GetLoadout()->GetManaFraction(), 5.0f);
-    this->Label(FString::Printf(TEXT("HP %.0f / %.0f"), Player->GetHealth(), Player->GetMaxHealth()), fLeft, fTop - 53.0f, FLinearColor::White, fScale);
-    this->Label(FString::Printf(TEXT("MP %.0f"), Player->GetMana()), fLeft + fBarWidth * 0.5f, fTop - 53.0f, Ice, fScale);
-    const FLinearColor Colors[] = { Gold, FLinearColor(1.0f, 0.4f, 0.15f), Ice, FLinearColor(0.75f, 0.4f, 1.0f), FLinearColor(0.25f, 1.0f, 0.55f), FLinearColor(0.5f, 0.7f, 1.0f) };
-    for (int32 iSlot = 0; iSlot < 6; ++iSlot)
-    {
-        const float fX = fLeft + iSlot * (fSlotWidth + 8.0f);
-        const FHBAbilitySpec Spec = Player->GetLoadout()->GetSlotSpec(iSlot);
-        const float fCooldown = Player->GetLoadout()->GetSlotCooldown(iSlot);
-        this->Panel(fX, fTop, fSlotWidth, 78.0f * fScale, Colors[static_cast<int32>(Player->GetLoadout()->GetSlotAbility(iSlot))]);
-        const FString KeyName = Controller->GetSlotKey(iSlot, Controller->IsUsingGamepad()).GetDisplayName().ToString();
-        this->Label(KeyName.Left(14), fX + 10.0f, fTop + 8.0f, Muted, 0.8f * fScale);
-        this->Label(Spec.Name.ToString(), fX + 10.0f, fTop + 31.0f * fScale, FLinearColor::White, fScale);
-        this->Label(fCooldown > 0.0f ? FString::Printf(TEXT("%.1fs"), fCooldown) : TEXT("READY"), fX + 10.0f, fTop + 55.0f * fScale, fCooldown > 0.0f ? Muted : Ice, 0.8f * fScale);
-    }
-    this->Label(Controller->GetLastActionResult(), fLeft, fTop - 82.0f, Muted, 0.85f * fScale);
     const float fInfoY = 148.0f * fScale;
-    this->Label(Mode->GetStatus(), 28.0f, fInfoY, Gold, 0.9f * fScale);
-    const FString Controls = Controller->IsUsingGamepad() ? TEXT("D-pad Up: next phase   Down: build   Right: socket   Left: repair   L3: cache   R3: cancel   Start: pause") : TEXT("Enter: next phase   B: build   Tab: socket   R: repair   E: cache   Space: cancel   P: pause   F2: diagnostics");
-    this->Label(Mode->IsGASDemo() ? TEXT("WASD: move | LMB: attack/move | RMB: Pulse | 1: Dodge | 2: Guard | 3: Mend | 4: Bolt | P: pause | F2: diagnostics") : Controls, 28.0f, fHeight - 25.0f, Muted, 0.85f * fScale);
-    if (Player->IsBuilding())
+    const bool bUseCanvasGameplay = !Controller->GetPracticeHUD();
+    if (bUseCanvasGameplay)
     {
-        this->Label(FString::Printf(TEXT("BUILD MODE  /  SOCKET %d  /  %s  /  30 STONES"), Mode->GetBuildSocketIndex() + 1, Mode->IsBuildSocketOccupied() ? TEXT("OCCUPIED") : TEXT("EMPTY")), 28.0f, fInfoY + 30.0f, Ice, fScale);
-    }
-    if (Mode->GetPhase() == EHBPhase::EHBP_Dungeon && !Mode->IsGASDemo())
-    {
-        for (int32 iChest = 0; iChest < 3; ++iChest)
+        this->Panel(24.0f, 24.0f, 300.0f * fScale, 105.0f * fScale, Ice);
+        this->Label(Mode->IsGASDemo() ? TEXT("GAS PRACTICE ARENA") : TEXT("HIDE IN THE BOX"), 40.0f, 36.0f, Ice, 1.1f * fScale);
+        this->Label(Mode->IsGASDemo() ? TEXT("Ability -> Effect -> Attribute / Tag") : FString::Printf(TEXT("%s   /   CYCLE %02d"), *Mode->GetPhaseLabel(), Mode->GetCycle()), 40.0f, 64.0f * fScale, FLinearColor::White, fScale);
+        this->Label(Mode->IsGASDemo() ? FString::Printf(TEXT("%d PRACTICE TARGETS | F6 TO RESET"), Mode->GetEnemies().Num()) : FString::Printf(TEXT("WAVE %d / 5    %.0fs    %d HOSTILES"), Mode->GetWave(), Mode->GetWaveSeconds(), Mode->GetEnemies().Num()), 40.0f, 93.0f * fScale, Muted, fScale);
+        if (Mode->IsGASDemo())
         {
-            if (Mode->IsGreedClaimed(iChest))
+            UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();
+            FGameplayTagContainer OwnedTags;
+            ASC->GetOwnedGameplayTags(OwnedTags);
+            TArray<FGameplayTag> TagArray;
+            OwnedTags.GetGameplayTagArray(TagArray);
+            const float X = fWidth - 310.0f * fScale - 24.0f;
+            this->Panel(X, 24.0f, 310.0f * fScale, 180.0f * fScale, Gold);
+            this->Label(TEXT("LIVE ABILITY SYSTEM"), X + 14.0f, 36.0f, Gold, fScale);
+            this->Label(FString::Printf(TEXT("Granted abilities: %d | Active GEs: %d"), ASC->GetActivatableAbilities().Num(), ASC->GetActiveEffects(FGameplayEffectQuery()).Num()), X + 14.0f, 60.0f, Ice, 0.85f * fScale);
+            this->Label(TagArray.IsEmpty() ? TEXT("Tags: none (ready)") : TEXT("Active tags:"), X + 14.0f, 82.0f, Muted, 0.85f * fScale);
+            for (int32 Index = 0; Index < FMath::Min(TagArray.Num(), 5); ++Index)
+            {
+                this->Label(TagArray[Index].ToString(), X + 14.0f, 103.0f + Index * 18.0f * fScale, Ice, 0.85f * fScale);
+            }
+        }
+        else
+        {
+        this->Panel(fWidth - 280.0f * fScale - 24.0f, 24.0f, 280.0f * fScale, 105.0f * fScale, Gold);
+        const float fRightX = fWidth - 280.0f * fScale - 8.0f;
+        this->Label(FString::Printf(TEXT("%d   MAGIC STONES"), Mode->GetStones()), fRightX, 38.0f, Gold, fScale);
+        this->Label(FString::Printf(TEXT("THREAT %d   /   NEXT WAVE %d"), Mode->GetThreat(), HBRules::GetWaveEnemyCount(FMath::Max(1, Mode->GetWave()), Mode->GetThreat())), fRightX, 68.0f * fScale, Muted, fScale);
+        this->Label(FString::Printf(TEXT("GATE %.0f    ANIMA %.0f"), Mode->GetGateHealth(), Mode->GetCoreHealth()), fRightX, 94.0f * fScale, Ice, fScale);
+        }
+
+        const float fSlotWidth = 110.0f * fScale;
+        const float fBarWidth = 6.0f * fSlotWidth + 5.0f * 8.0f;
+        const float fLeft = (fWidth - fBarWidth) * 0.5f;
+        const float fTop = fHeight - 138.0f * fScale;
+        this->DrawRect(FLinearColor(0.1f, 0.025f, 0.035f), fLeft, fTop - 28.0f, fBarWidth * 0.5f - 8.0f, 5.0f);
+        this->DrawRect(FLinearColor(0.9f, 0.2f, 0.3f), fLeft, fTop - 28.0f, (fBarWidth * 0.5f - 8.0f) * FMath::Clamp(Player->GetHealth() / Player->GetMaxHealth(), 0.0f, 1.0f), 5.0f);
+        this->DrawRect(FLinearColor(0.03f, 0.05f, 0.14f), fLeft + fBarWidth * 0.5f, fTop - 28.0f, fBarWidth * 0.5f, 5.0f);
+        this->DrawRect(Ice, fLeft + fBarWidth * 0.5f, fTop - 28.0f, fBarWidth * 0.5f * Player->GetLoadout()->GetManaFraction(), 5.0f);
+        this->Label(FString::Printf(TEXT("HP %.0f / %.0f"), Player->GetHealth(), Player->GetMaxHealth()), fLeft, fTop - 53.0f, FLinearColor::White, fScale);
+        this->Label(FString::Printf(TEXT("MP %.0f"), Player->GetMana()), fLeft + fBarWidth * 0.5f, fTop - 53.0f, Ice, fScale);
+        const FLinearColor Colors[] = { Gold, FLinearColor(1.0f, 0.4f, 0.15f), Ice, FLinearColor(0.75f, 0.4f, 1.0f), FLinearColor(0.25f, 1.0f, 0.55f), FLinearColor(0.5f, 0.7f, 1.0f) };
+        for (int32 iSlot = 0; iSlot < 6; ++iSlot)
+        {
+            const float fX = fLeft + iSlot * (fSlotWidth + 8.0f);
+            const FHBAbilitySpec Spec = Player->GetLoadout()->GetSlotSpec(iSlot);
+            const float fCooldown = Player->GetLoadout()->GetSlotCooldown(iSlot);
+            this->Panel(fX, fTop, fSlotWidth, 78.0f * fScale, Colors[static_cast<int32>(Player->GetLoadout()->GetSlotAbility(iSlot))]);
+            const FString KeyName = Controller->GetSlotKey(iSlot, Controller->IsUsingGamepad()).GetDisplayName().ToString();
+            this->Label(KeyName.Left(14), fX + 10.0f, fTop + 8.0f, Muted, 0.8f * fScale);
+            this->Label(Spec.Name.ToString(), fX + 10.0f, fTop + 31.0f * fScale, FLinearColor::White, fScale);
+            this->Label(fCooldown > 0.0f ? FString::Printf(TEXT("%.1fs"), fCooldown) : TEXT("READY"), fX + 10.0f, fTop + 55.0f * fScale, fCooldown > 0.0f ? Muted : Ice, 0.8f * fScale);
+        }
+        this->Label(Controller->GetLastActionResult(), fLeft, fTop - 82.0f, Muted, 0.85f * fScale);
+        this->Label(Mode->GetStatus(), 28.0f, fInfoY, Gold, 0.9f * fScale);
+        const FString Controls = Controller->IsUsingGamepad() ? TEXT("D-pad Up: next phase   Down: build   Right: socket   Left: repair   L3: cache   R3: cancel   Start: pause") : TEXT("Enter: next phase   B: build   Tab: socket   R: repair   E: cache   Space: cancel   P: pause   F2: diagnostics");
+        this->Label(Mode->IsGASDemo() ? TEXT("WASD: move | LMB: attack/move | RMB: Pulse | 1: Dodge | 2: Guard | 3: Mend | 4: Bolt | P: pause | F2: diagnostics") : Controls, 28.0f, fHeight - 25.0f, Muted, 0.85f * fScale);
+        if (Player->IsBuilding())
+        {
+            this->Label(FString::Printf(TEXT("BUILD MODE  /  SOCKET %d  /  %s  /  30 STONES"), Mode->GetBuildSocketIndex() + 1, Mode->IsBuildSocketOccupied() ? TEXT("OCCUPIED") : TEXT("EMPTY")), 28.0f, fInfoY + 30.0f, Ice, fScale);
+        }
+        if (Mode->GetPhase() == EHBPhase::EHBP_Dungeon && !Mode->IsGASDemo())
+        {
+            for (int32 iChest = 0; iChest < 3; ++iChest)
+            {
+                if (Mode->IsGreedClaimed(iChest))
+                {
+                    continue;
+                }
+                const FVector Screen = this->Project(Mode->GetGreedPosition(iChest) + FVector(0.0f, 0.0f, 60.0f));
+                if (Screen.Z > 0.0f) { this->Label(TEXT("CACHE  +30 / +3 THREAT"), Screen.X - 70.0f, Screen.Y, Gold, 0.8f); }
+            }
+        }
+        for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Mode->GetEnemies())
+        {
+            const AHBEnemyCharacter* Enemy = Entry.Get();
+            if (!IsValid(Enemy))
             {
                 continue;
             }
-            const FVector Screen = this->Project(Mode->GetGreedPosition(iChest) + FVector(0.0f, 0.0f, 60.0f));
-            if (Screen.Z > 0.0f) { this->Label(TEXT("CACHE  +30 / +3 THREAT"), Screen.X - 70.0f, Screen.Y, Gold, 0.8f); }
-        }
-    }
-    for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Mode->GetEnemies())
-    {
-        const AHBEnemyCharacter* Enemy = Entry.Get();
-        if (!IsValid(Enemy))
-        {
-            continue;
-        }
-        const FVector Screen = this->Project(Enemy->GetActorLocation() + FVector(0.0f, 0.0f, 110.0f));
-        if (Screen.Z > 0.0f)
-        {
-            this->DrawRect(FLinearColor(0.03f, 0.01f, 0.01f, 0.9f), Screen.X - 25.0f, Screen.Y, 50.0f, 4.0f);
-            this->DrawRect(FLinearColor(0.9f, 0.2f, 0.18f), Screen.X - 25.0f, Screen.Y, 50.0f * FMath::Clamp(Enemy->GetHealth() / Enemy->GetMaxHealth(), 0.0f, 1.0f), 4.0f);
+            const FVector Screen = this->Project(Enemy->GetActorLocation() + FVector(0.0f, 0.0f, 110.0f));
+            if (Screen.Z > 0.0f)
+            {
+                this->DrawRect(FLinearColor(0.03f, 0.01f, 0.01f, 0.9f), Screen.X - 25.0f, Screen.Y, 50.0f, 4.0f);
+                this->DrawRect(FLinearColor(0.9f, 0.2f, 0.18f), Screen.X - 25.0f, Screen.Y, 50.0f * FMath::Clamp(Enemy->GetHealth() / Enemy->GetMaxHealth(), 0.0f, 1.0f), 4.0f);
+            }
         }
     }
 #if !UE_BUILD_SHIPPING
@@ -209,7 +213,7 @@ void AHBHUD::DrawHUD()
         this->Label(TEXT("Console: HBDebugCheck / Clear / Freeze / Filter / Dump / Reset (full command names)"), 36.0f, fY + fDebugHeight - 20.0f, Ice, 0.75f);
     }
 #endif
-    if (Controller->IsPaused() || Mode->GetPhase() == EHBPhase::EHBP_GameOver)
+    if (bUseCanvasGameplay && (Controller->IsPaused() || Mode->GetPhase() == EHBPhase::EHBP_GameOver))
     {
         const float fOverlayY = this->bShowDiagnostics ? fHeight - 58.0f : fHeight * 0.4f;
         this->DrawRect(FLinearColor(0.0f, 0.0f, 0.015f, 0.7f), 0.0f, fOverlayY, fWidth, this->bShowDiagnostics ? 32.0f : 110.0f);
