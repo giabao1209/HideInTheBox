@@ -69,8 +69,7 @@ void AHBGameMode::DamageGASDemoPlayer()
 {
     AHBPlayerCharacter* Player = this->GetPlayer();
     if (!this->bGASDemo || !Player || !Player->IsAlive()) { return; }
-    Player->ApplyHealthDelta(-FMath::Min(60.0f, Player->GetHealth() - 1.0f));
-    UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Practice: applied HealthDelta GE; use Mend to heal"));
+    UGameplayStatics::ApplyDamage(Player, FMath::Min(60.0f, Player->GetHealth() - 1.0f), nullptr, this, nullptr);
 }
 
 void AHBGameMode::RefillGASDemoMana()

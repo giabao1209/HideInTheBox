@@ -3,6 +3,7 @@
 #include "HBEffects.h"
 #include "HBGameplayAbility.h"
 #include "AbilitySystemComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
 #include "GameplayEffect.h"
 #include "HBDebugSubsystem.h"
 #include "Engine/SkeletalMesh.h"
@@ -58,8 +59,10 @@ bool AHBPlayerCharacter::TryActivateGASAction(EHBAbility Ability, const FHBAbili
     bPendingGASInPlace = bInPlace;
 
     const TSubclassOf<UHBGameplayAbility> AbilityClass = Loadout->GetAbilityClass(Ability);
-    const bool bActivated = AbilityClass && AbilitySystem->TryActivateAbilityByClass(AbilityClass);
-    const bool bAccepted = bActivated && bLastGASActivationAccepted;
+    // With a montage, Basic activates when the queued command actually starts its swing.
+    const bool bAccepted = Ability == EHBAbility::EHBA_Basic && UsesAttackMontage()
+        ? ExecutePendingGAS(Ability)
+        : AbilityClass && AbilitySystem->TryActivateAbilityByClass(AbilityClass) && bLastGASActivationAccepted;
     bGASContextReady = false;
     PendingGASTarget.Reset();
     UHBDebugSubsystem::Record(this, TEXT("Combat"),
@@ -110,6 +113,70 @@ bool AHBPlayerCharacter::ExecutePendingGAS(EHBAbility Ability)
 {
     return CanExecutePendingGAS(Ability) &&
         ExecuteAbility(Ability, PendingGASSpec, PendingGASTarget.Get(), PendingGASAim, bPendingGASInPlace);
+}
+
+bool AHBPlayerCharacter::ExecutePendingGuard(TSubclassOf<UGameplayEffect> GuardEffectClass)
+{
+    const FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(GuardEffectClass, 1.0f, AbilitySystem->MakeEffectContext());
+    if (!Effect.IsValid())
+    {
+        return false;
+    }
+    const FGameplayTag GuardTag = FGameplayTag::RequestGameplayTag(TEXT("State.Guarding"));
+    const FGameplayEffectQuery GuardQuery = FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(FGameplayTagContainer(GuardTag));
+    const TArray<FActiveGameplayEffectHandle> PreviousGuards = AbilitySystem->GetActiveEffects(GuardQuery);
+    Effect.Data->SetSetByCallerMagnitude(FName(TEXT("Magnitude")), FMath::Clamp(PendingGASSpec.fPower, 0.0f, 0.95f));
+    Effect.Data->SetDuration(PendingGASSpec.fDuration, true);
+    Effect.Data->DynamicGrantedTags.AddTag(GuardTag);
+    const FActiveGameplayEffectHandle NewGuard = AbilitySystem->ApplyGameplayEffectSpecToSelf(*Effect.Data);
+    if (!NewGuard.IsValid())
+    {
+        return false;
+    }
+    for (const FActiveGameplayEffectHandle PreviousGuard : PreviousGuards)
+    {
+        if (PreviousGuard != NewGuard)
+        {
+            AbilitySystem->RemoveActiveGameplayEffect(PreviousGuard);
+        }
+    }
+    const FVector FootPosition = GetActorLocation() - FVector(0, 0, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+    Feedback->PlayEffect(FootPosition, 110.0f, FLinearColor(0.65f, 0.35f, 1.0f));
+    return true;
+}
+
+bool AHBPlayerCharacter::ExecutePendingPulse(TSubclassOf<UGameplayEffect> DamageEffectClass)
+{
+    const AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
+    FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(DamageEffectClass, 1.0f, AbilitySystem->MakeEffectContext());
+    if (!Mode || !Effect.IsValid())
+    {
+        return false;
+    }
+    Effect.Data->SetSetByCallerMagnitude(FName(TEXT("Magnitude")), FMath::Max(0.0f, PendingGASSpec.fPower));
+    const TArray<TWeakObjectPtr<AHBEnemyCharacter>> Targets = Mode->GetEnemies();
+    for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Targets)
+    {
+        AHBEnemyCharacter* Enemy = Entry.Get();
+        if (IsValid(Enemy) && Enemy->IsAlive() &&
+            FVector::DistSquaredXY(PendingGASAim, Enemy->GetActorLocation()) <= FMath::Square(PendingGASSpec.fRadius) &&
+            HasHitLine(Enemy->GetActorLocation(), Enemy))
+        {
+            AbilitySystem->ApplyGameplayEffectSpecToTarget(*Effect.Data, Enemy->GetAbilitySystemComponent());
+        }
+    }
+    FGameplayCueParameters Cue;
+    Cue.Location = FVector(PendingGASAim.X, PendingGASAim.Y,
+        GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+    Cue.RawMagnitude = PendingGASSpec.fRadius;
+    AbilitySystem->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Pulse")), Cue);
+    return true;
+}
+
+void AHBPlayerCharacter::PresentPulseCue(FVector Location, float Radius, FLinearColor Color)
+{
+    UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("GameplayCue.GASDemo.Pulse executed"));
+    Feedback->PlayEffect(Location, Radius, Color);
 }
 
 float AHBPlayerCharacter::GetPendingGASCost(EHBAbility Ability) const
@@ -409,27 +476,13 @@ void AHBPlayerCharacter::StartAttack()
         const FVector Direction = this->AttackTarget->GetActorLocation() - this->GetActorLocation();
         this->SetActorRotation(FRotator(0.0f, Direction.Rotation().Yaw, 0.0f));
     }
-    UAnimInstance* Anim = this->GetMesh()->GetAnimInstance();
     if (this->AttackMontage)
     {
-        const float fDuration = Anim ? Anim->Montage_Play(this->AttackMontage) : 0.0f;
-        if (fDuration <= 0.0f)
-        {
-            UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Playback FAILED: check mesh, AnimBP, skeleton and slot"));
-            this->AttackPlayback = TEXT("Playback failed");
-            this->LastAttackOutcome = TEXT("Playback failed: check mesh / AnimBP / skeleton");
-            UE_LOG(LogHideInTheBox, Warning, TEXT("Attack montage could not play on %s"), *this->GetName());
-            this->bAttacking = false;
-            this->Command = EHBCommand::EHBC_None;
-            this->AttackTarget.Reset();
-            return;
-        }
-        UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Montage started"));
         this->AttackPlayback = TEXT("Montage");
-        FOnMontageEnded EndDelegate;
-        EndDelegate.BindUObject(this, &AHBPlayerCharacter::OnMontageEnded);
-        Anim->Montage_SetEndDelegate(EndDelegate, this->AttackMontage);
-        this->GetWorldTimerManager().SetTimer(this->AttackEndTimer, this, &AHBPlayerCharacter::OnAttackTimeout, fDuration + 0.5f, false);
+        if (!AbilitySystem->TryActivateAbilityByClass(Loadout->GetAbilityClass(EHBAbility::EHBA_Basic)))
+        {
+            this->OnAttackMontageFinished(true);
+        }
         return;
     }
     UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Timed fallback started; no montage assigned"));
@@ -444,7 +497,12 @@ void AHBPlayerCharacter::DeliverAnimationHit(UAnimSequenceBase* Animation)
     UAnimInstance* Anim = this->GetMesh()->GetAnimInstance();
     if (Animation == this->AttackMontage && Anim && Anim->Montage_IsActive(this->AttackMontage))
     {
-        this->DeliverAttackHit();
+        const FGameplayTag HitTag = FGameplayTag::RequestGameplayTag(TEXT("Event.Attack.Hit"));
+        FGameplayEventData Event;
+        Event.EventTag = HitTag;
+        Event.Instigator = this;
+        Event.Target = AttackTarget.Get();
+        UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, HitTag, Event);
     }
     else
     {
@@ -484,13 +542,6 @@ void AHBPlayerCharacter::FinishAttack()
     this->GetWorldTimerManager().ClearTimer(this->AttackHitTimer);
     this->GetWorldTimerManager().ClearTimer(this->AttackEndTimer);
     this->bAttacking = false;
-    UAnimInstance* Anim = this->GetMesh()->GetAnimInstance();
-    if (Anim && this->AttackMontage && Anim->Montage_IsActive(this->AttackMontage))
-    {
-        FOnMontageEnded EmptyDelegate;
-        Anim->Montage_SetEndDelegate(EmptyDelegate, this->AttackMontage);
-        Anim->Montage_Stop(0.0f, this->AttackMontage);
-    }
     this->Command = EHBCommand::EHBC_None;
     this->AttackTarget.Reset();
     UHBDebugSubsystem::Record(this, TEXT("Command"), TEXT("Swing released; consume buffered command if present"));
@@ -507,9 +558,9 @@ void AHBPlayerCharacter::FinishAttack()
     this->BufferedTarget.Reset();
 }
 
-void AHBPlayerCharacter::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+void AHBPlayerCharacter::OnAttackMontageFinished(bool bInterrupted)
 {
-    if (Montage != this->AttackMontage || !this->bAttacking)
+    if (!this->bAttacking)
     {
         return;
     }
@@ -546,13 +597,14 @@ void AHBPlayerCharacter::CancelCommands()
     this->AimInput = FVector2D::ZeroVector;
     this->GetWorldTimerManager().ClearTimer(this->AttackHitTimer);
     this->GetWorldTimerManager().ClearTimer(this->AttackEndTimer);
-    UAnimInstance* Anim = this->GetMesh()->GetAnimInstance();
-    if (Anim && this->AttackMontage)
+    if (this->AttackMontage)
     {
-        FOnMontageEnded EmptyDelegate;
-        Anim->Montage_SetEndDelegate(EmptyDelegate, this->AttackMontage);
-        Anim->Montage_Stop(0.0f, this->AttackMontage);
+        if (const FGameplayAbilitySpec* Spec = AbilitySystem->FindAbilitySpecFromClass(Loadout->GetAbilityClass(EHBAbility::EHBA_Basic)))
+        {
+            AbilitySystem->CancelAbilityHandle(Spec->Handle);
+        }
     }
+    this->StopAnimMontage();
     this->GetCharacterMovement()->StopMovementImmediately();
     this->Feedback->HideAll();
 }
@@ -590,13 +642,6 @@ bool AHBPlayerCharacter::ExecuteAbility(EHBAbility Ability, const FHBAbilitySpec
         this->GetCharacterMovement()->Velocity = this->DodgeDirection * this->GetCharacterMovement()->MaxWalkSpeed;
         return true;
     }
-    if (Ability == EHBAbility::EHBA_Guard)
-    {
-        this->Feedback->PlayEffect(FootPosition, 110.0f, FLinearColor(0.65f, 0.35f, 1.0f));
-        this->fGuardUntil = this->GetWorld()->GetTimeSeconds() + Spec.fDuration;
-        this->fGuardReduction = FMath::Clamp(Spec.fPower, 0.0f, 0.95f);
-        return true;
-    }
     if (Ability == EHBAbility::EHBA_Mend)
     {
         const bool bHealed = this->Heal(Spec.fPower) > 0.0f;
@@ -616,26 +661,6 @@ bool AHBPlayerCharacter::ExecuteAbility(EHBAbility Ability, const FHBAbilitySpec
         UGameplayStatics::ApplyDamage(Target, FMath::Max(0.0f, Spec.fPower), this->GetController(), this, UDamageType::StaticClass());
         return true;
     }
-    if (Ability == EHBAbility::EHBA_Pulse)
-    {
-        if (FVector::DistSquaredXY(this->GetActorLocation(), AimPoint) > FMath::Square(Spec.fRange))
-        {
-            return false;
-        }
-        FVector EffectPosition = AimPoint;
-        EffectPosition.Z = FootPosition.Z;
-        this->Feedback->PlayEffect(EffectPosition, Spec.fRadius, FLinearColor(1.0f, 0.5f, 0.12f));
-        const TArray<TWeakObjectPtr<AHBEnemyCharacter>> Targets = Mode->GetEnemies();
-        for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Targets)
-        {
-            AHBEnemyCharacter* Enemy = Entry.Get();
-            if (IsValid(Enemy) && Enemy->IsAlive() && FVector::DistSquaredXY(AimPoint, Enemy->GetActorLocation()) <= FMath::Square(Spec.fRadius) && this->HasHitLine(Enemy->GetActorLocation(), Enemy))
-            {
-                UGameplayStatics::ApplyDamage(Enemy, FMath::Max(0.0f, Spec.fPower), this->GetController(), this, UDamageType::StaticClass());
-            }
-        }
-        return true;
-    }
     return false;
 }
 
@@ -650,7 +675,8 @@ void AHBPlayerCharacter::ResetForPhase(const FVector& Position)
     this->SetBuildMode(false);
     this->RestoreHealth();
     this->Loadout->ResetResources();
-    this->fGuardUntil = 0.0f;
+    const FGameplayTag GuardTag = FGameplayTag::RequestGameplayTag(TEXT("State.Guarding"));
+    AbilitySystem->RemoveActiveEffects(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(FGameplayTagContainer(GuardTag)));
     this->SetActorLocation(Position, false, nullptr, ETeleportType::TeleportPhysics);
 }
 
@@ -723,7 +749,7 @@ float AHBPlayerCharacter::TakeDamage(float fDamage, const FDamageEvent& DamageEv
         UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Damage avoided: dodge immunity window"));
         return 0.0f;
     }
-    const float fMultiplier = fNow < this->fGuardUntil ? 1.0f - this->fGuardReduction : 1.0f;
+    const float fMultiplier = 1.0f - FMath::Clamp(Attributes->GetGuardReduction(), 0.0f, 0.95f);
     // Taking a non-lethal hit never cancels a montage or its pending command.
     return Super::TakeDamage(fDamage * fMultiplier, DamageEvent, EventInstigator, DamageCauser);
 }

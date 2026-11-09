@@ -35,6 +35,10 @@ public:
     FGameplayAttributeData MaxMana;
     HB_ATTRIBUTE_ACCESSORS(UHBAttributes, MaxMana)
 
+    UPROPERTY(BlueprintReadOnly, Category="GAS|Attributes")
+    FGameplayAttributeData GuardReduction;
+    HB_ATTRIBUTE_ACCESSORS(UHBAttributes, GuardReduction)
+
     virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
     virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

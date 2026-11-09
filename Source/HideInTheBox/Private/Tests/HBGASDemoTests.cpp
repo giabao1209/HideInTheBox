@@ -4,7 +4,10 @@
 #include "HBGameplayAbility.h"
 #include "HBPlayerController.h"
 #include "HBPracticeWidget.h"
+#include "HBDebugSubsystem.h"
 #include "AbilitySystemComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Components/Button.h"
 #include "Components/Image.h"
 #include "Components/ProgressBar.h"
@@ -17,17 +20,31 @@
 #include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
-DEFINE_LATENT_AUTOMATION_COMMAND_FOUR_PARAMETER(FHBVerifyMontageHit, FAutomationTestBase*, Test,
-    TWeakObjectPtr<AHBEnemyCharacter>, Target, float, ExpectedHealth, double, Deadline);
+namespace
+{
+    void OnPulseDamageApplied(UAbilitySystemComponent* Source, const FGameplayEffectSpec& Spec,
+        FActiveGameplayEffectHandle, UAbilitySystemComponent* ExpectedSource, bool* bApplied)
+    {
+        *bApplied |= Source == ExpectedSource && Spec.Def->GetClass()->GetName() == TEXT("GE_GASDemo_Damage_C");
+    }
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_FIVE_PARAMETER(FHBVerifyMontageHit, FAutomationTestBase*, Test,
+    TWeakObjectPtr<AHBPlayerCharacter>, Player, TWeakObjectPtr<AHBEnemyCharacter>, Target, float, ExpectedHealth, double, Deadline);
 
 bool FHBVerifyMontageHit::Update()
 {
-    if (Target.IsValid() && Target->GetHealth() > ExpectedHealth && FPlatformTime::Seconds() < Deadline)
+    const bool bGuardActive = Player.IsValid() && Player->GetAbilitySystemComponent()->HasMatchingGameplayTag(
+        FGameplayTag::RequestGameplayTag(TEXT("State.Guarding")));
+    if (Player.IsValid() && (Player->IsAttacking() || bGuardActive) && FPlatformTime::Seconds() < Deadline)
     {
         return false;
     }
-    Test->TestTrue(TEXT("Montage hit notify applied Basic damage"), Target.IsValid() &&
+    Test->TestTrue(TEXT("Two buffered swings applied one hit each"), Target.IsValid() &&
         FMath::IsNearlyEqual(Target->GetHealth(), ExpectedHealth));
+    Test->TestTrue(TEXT("Montage task completed the swing"), Player.IsValid() &&
+        !Player->IsAttacking() && Player->GetLastAttackOutcome() == TEXT("Completed"));
+    Test->TestFalse(TEXT("Guard effect expires without reset"), bGuardActive);
     return true;
 }
 
@@ -65,8 +82,11 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     if (!this->TestNotNull(TEXT("Gameplay widget mounted"), GameplayPanel) ||
         !this->TestNotNull(TEXT("Inspector widget mounted"), InspectorPanel)) { return false; }
     this->TestEqual(TEXT("Player uses the demo Blueprint"), Player->GetClass()->GetName(), FString(TEXT("BP_GASDemoPlayer_C")));
-    this->TestTrue(TEXT("Player mesh and locomotion animation are assigned"),
-        Player->GetMesh()->GetSkeletalMeshAsset() && Player->GetMesh()->GetAnimInstance());
+    const UAnimInstance* Anim = Player->GetMesh()->GetAnimInstance();
+    if (!this->TestTrue(TEXT("Player mesh and locomotion animation are assigned"), Player->GetMesh()->GetSkeletalMeshAsset() && Anim))
+    {
+        return false;
+    }
     this->TestEqual(TEXT("Pulse is granted from the Data Asset"), Loadout->GetAbilityClass(EHBAbility::EHBA_Pulse)->GetName(), FString(TEXT("GA_GASDemo_Pulse_C")));
     this->TestEqual(TEXT("Six granted abilities"), ASC->GetActivatableAbilities().Num(), 6);
     this->TestEqual(TEXT("Three practice targets"), Mode->GetEnemies().Num(), 3);
@@ -80,7 +100,18 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestTrue(TEXT("Target uses its Widget Blueprint"), TargetHealthComponent && Cast<UHBGASTargetWidget>(TargetHealthComponent->GetUserWidgetObject()));
     const FVector Aim = Target->GetActorLocation();
     const float TargetHealth = Target->GetHealth();
+    bool bPulseAppliedDamageEffect = false;
+    UAbilitySystemComponent* TargetASC = Target->GetAbilitySystemComponent();
+    const FDelegateHandle DamageProbe = TargetASC->OnGameplayEffectAppliedDelegateToSelf.AddStatic(
+        &OnPulseDamageApplied, ASC, &bPulseAppliedDamageEffect);
     this->TestEqual(TEXT("Pulse accepted"), Loadout->TryActivateSlot(1, nullptr, Aim, false), EHBActionResult::EHBAR_Accepted);
+    TargetASC->OnGameplayEffectAppliedDelegateToSelf.Remove(DamageProbe);
+    this->TestTrue(TEXT("Pulse applies the Blueprint Damage GE from the player's ASC"), bPulseAppliedDamageEffect);
+    const UAnimMontage* PulseMontage = Anim->GetCurrentActiveMontage();
+    this->TestTrue(TEXT("Pulse uses the charged attack animation"), PulseMontage && PulseMontage->GetFName() == TEXT("AM_GAS_PulseCast"));
+    TArray<FString> PulseEvents;
+    Player->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->GetRecent(PulseEvents, 12);
+    this->TestTrue(TEXT("Pulse Gameplay Cue executes the shockwave"), FString::Join(PulseEvents, TEXT("\n")).Contains(TEXT("GameplayCue.GASDemo.Pulse executed")));
     this->TestEqual(TEXT("Pulse spends 20 mana"), Player->GetGASMana(), 80.0f);
     this->TestEqual(TEXT("Pulse GE deals 45 damage"), Target->GetHealth(), TargetHealth - 45.0f);
     this->TestTrue(TEXT("Pulse tag granted"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Pulse)));
@@ -104,7 +135,20 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
 
     Mode->ResetGASDemo();
     this->TestEqual(TEXT("Reset restores mana"), Player->GetGASMana(), 100.0f);
+    this->TestNull(TEXT("Reset stops the charged attack animation"), Anim->GetCurrentActiveMontage());
     this->TestFalse(TEXT("Reset clears cooldown tag"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Pulse)));
+    this->TestEqual(TEXT("Guard accepted"), Loadout->TryActivateSlot(3, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    const FGameplayTag GuardTag = FGameplayTag::RequestGameplayTag(TEXT("State.Guarding"));
+    const TArray<FActiveGameplayEffectHandle> GuardEffects = ASC->GetActiveEffects(
+        FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(FGameplayTagContainer(GuardTag)));
+    const FActiveGameplayEffect* Guard = GuardEffects.Num() == 1 ? ASC->GetActiveGameplayEffect(GuardEffects[0]) : nullptr;
+    this->TestTrue(TEXT("Guard grants a timed Blueprint buff"), Guard && Guard->Spec.Def->GetClass()->GetName() == TEXT("GE_GASDemo_Guard_C") &&
+        FMath::IsNearlyEqual(Guard->Spec.GetDuration(), Loadout->GetSlotSpec(3).fDuration));
+    const float GuardReduction = FMath::Clamp(Loadout->GetSlotSpec(3).fPower, 0.0f, 0.95f);
+    Mode->DamageGASDemoPlayer();
+    this->TestEqual(TEXT("Guard reduces practice combat damage"), Player->GetHealth(), Player->GetMaxHealth() - 60.0f * (1.0f - GuardReduction));
+    Mode->ResetGASDemo();
+    this->TestFalse(TEXT("Reset removes the Guard buff"), ASC->HasMatchingGameplayTag(GuardTag));
     this->TestEqual(TEXT("Full-health Mend rejected"), Loadout->TryActivateSlot(4, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_InvalidTarget);
     this->TestEqual(TEXT("Invalid Mend costs no mana"), Player->GetGASMana(), 100.0f);
     UButton* DamageButton = Cast<UButton>(GameplayPanel->GetWidgetFromName(TEXT("DamageButton")));
@@ -158,11 +202,17 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     Mode->ResetGASDemo();
     Target = Mode->GetEnemies().IsEmpty() ? nullptr : Mode->GetEnemies()[0].Get();
     if (!this->TestNotNull(TEXT("Montage test target spawned"), Target)) { return false; }
+    Player->SetActorLocation(Target->GetActorLocation() - FVector(800.0f, 0.0f, 0.0f));
+    this->TestEqual(TEXT("Out-of-range in-place Basic is rejected"), Loadout->TryActivateSlot(0, Target, Target->GetActorLocation(), true), EHBActionResult::EHBAR_InvalidTarget);
     Player->SetActorLocation(Target->GetActorLocation() - FVector(120.0f, 0.0f, 0.0f));
-    const float ExpectedHealth = Target->GetHealth() - Loadout->GetSlotSpec(0).fPower;
+    this->TestEqual(TEXT("Guard reapplied for expiry check"), Loadout->TryActivateSlot(3, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    const float ExpectedHealth = Target->GetHealth() - 2.0f * Loadout->GetSlotSpec(0).fPower;
     this->TestEqual(TEXT("Basic starts with the Montage assigned"), Loadout->TryActivateSlot(0, Target, Target->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
     this->TestEqual(TEXT("Basic uses animation playback"), Player->GetAttackPlayback(), FString(TEXT("Montage")));
-    ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyMontageHit(this, Target, ExpectedHealth, FPlatformTime::Seconds() + 3.0));
+    const FGameplayAbilitySpec* Basic = ASC->FindAbilitySpecFromClass(Loadout->GetAbilityClass(EHBAbility::EHBA_Basic));
+    this->TestTrue(TEXT("Basic remains active while montage and hit tasks run"), Basic && Basic->IsActive());
+    this->TestEqual(TEXT("Second Basic can queue during montage"), Loadout->TryActivateSlot(0, Target, Target->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyMontageHit(this, Player, Target, ExpectedHealth, FPlatformTime::Seconds() + 4.0));
     return true;
 }
 #endif

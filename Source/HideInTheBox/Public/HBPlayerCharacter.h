@@ -25,6 +25,8 @@ public:
     bool TryActivateGASAction(EHBAbility Ability, const FHBAbilitySpec& Spec, AHBEnemyCharacter* Target, const FVector& AimPoint, bool bInPlace);
     bool CanExecutePendingGAS(EHBAbility Ability) const;
     bool ExecutePendingGAS(EHBAbility Ability);
+    bool ExecutePendingGuard(TSubclassOf<UGameplayEffect> GuardEffectClass);
+    bool ExecutePendingPulse(TSubclassOf<UGameplayEffect> DamageEffectClass);
     float GetPendingGASCost(EHBAbility Ability) const;
     float GetPendingGASCooldown(EHBAbility Ability) const;
     void SetLastGASActivationResult(bool bAccepted) { bLastGASActivationAccepted = bAccepted; }
@@ -60,6 +62,9 @@ public:
     UFUNCTION(BlueprintPure, Category="Combat") bool IsAttacking() const { return this->bAttacking; }
     UFUNCTION(BlueprintPure, Category="Combat") float GetMana() const { return this->Loadout->GetMana(); }
     bool UsesAttackMontage() const { return this->AttackMontage != nullptr; }
+    UAnimMontage* GetAttackMontage() const { return AttackMontage; }
+    void OnAttackMontageFinished(bool bInterrupted);
+    void PresentPulseCue(FVector Location, float Radius, FLinearColor Color);
     EHBCommand GetCommand() const { return this->Command; }
     bool HasBufferedCommand() const { return this->BufferedCommand != EHBCommand::EHBC_None; }
     bool IsBuilding() const { return this->bBuildMode; }
@@ -95,7 +100,6 @@ private:
     void OnAttackTimeout();
     void EndDodge();
     bool HasHitLine(const FVector& Point, const AActor* Target) const;
-    void OnMontageEnded(UAnimMontage* Montage, bool bInterrupted);
     void UpdateCommand(float fDeltaSeconds);
     void UpdateFeedback();
     void FaceDirection(const FVector& Direction);
@@ -120,8 +124,6 @@ private:
     FVector DodgeDirection = FVector::ForwardVector;
     float fDodgeEndTime = 0.0f;
     float fInvulnerableUntil = 0.0f;
-    float fGuardUntil = 0.0f;
-    float fGuardReduction = 0.0f;
     float fSavedWalkSpeed = 450.0f;
     FString AttackPlayback = TEXT("Idle");
     FString LastAttackOutcome = TEXT("None");

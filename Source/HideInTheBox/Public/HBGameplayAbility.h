@@ -6,6 +6,7 @@
 #include "HBGameplayAbility.generated.h"
 
 class AHBPlayerCharacter;
+class UAnimMontage;
 
 /** One native ability implementation shared by six registered GAS specs. */
 UCLASS(Abstract, Blueprintable)
@@ -34,6 +35,7 @@ public:
         const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
         const FGameplayEventData* TriggerEventData) override;
 protected:
+    virtual bool ExecuteAction(AHBPlayerCharacter* Player);
     UFUNCTION(BlueprintImplementableEvent, Category="Ability", meta=(DisplayName="On Ability Committed"))
     void OnAbilityCommitted(AHBPlayerCharacter* Player);
     EHBAbility AbilityKind = EHBAbility::EHBA_Basic;
@@ -45,6 +47,21 @@ class HIDEINTHEBOX_API UHBGA_Basic : public UHBGameplayAbility
     GENERATED_BODY()
 public:
     UHBGA_Basic();
+    virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle,
+        const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags,
+        const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const override;
+    virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle,
+        const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
+        const FGameplayEventData* TriggerEventData) override;
+protected:
+    UFUNCTION(BlueprintImplementableEvent, Category="GAS|Basic")
+    void PlayAttackMontage(UAnimMontage* Montage);
+    UFUNCTION(BlueprintCallable, Category="GAS|Basic")
+    void FinishAttackMontage(bool bInterrupted);
+private:
+    UFUNCTION() void OnAttackHit(FGameplayEventData Payload);
+    UFUNCTION() void OnAttackCompleted();
+    UFUNCTION() void OnAttackInterrupted();
 };
 
 UCLASS()
@@ -53,6 +70,12 @@ class HIDEINTHEBOX_API UHBGA_Pulse : public UHBGameplayAbility
     GENERATED_BODY()
 public:
     UHBGA_Pulse();
+protected:
+    virtual bool ExecuteAction(AHBPlayerCharacter* Player) override;
+    UPROPERTY(EditDefaultsOnly, Category="GAS|Pulse")
+    TSubclassOf<UGameplayEffect> DamageEffectClass;
+    UFUNCTION(BlueprintCallable, Category="GAS|Pulse")
+    void PlayPulseMontage(UAnimMontage* Montage);
 };
 
 UCLASS()
@@ -69,6 +92,10 @@ class HIDEINTHEBOX_API UHBGA_Guard : public UHBGameplayAbility
     GENERATED_BODY()
 public:
     UHBGA_Guard();
+protected:
+    virtual bool ExecuteAction(AHBPlayerCharacter* Player) override;
+    UPROPERTY(EditDefaultsOnly, Category="GAS|Guard")
+    TSubclassOf<UGameplayEffect> GuardEffectClass;
 };
 
 UCLASS()
