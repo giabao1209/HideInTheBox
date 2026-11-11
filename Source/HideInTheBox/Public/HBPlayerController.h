@@ -12,7 +12,7 @@ class UEnhancedInputComponent;
 class AHBIndicator;
 class UUserWidget;
 
-UCLASS()
+UCLASS(Config=Input)
 class HIDEINTHEBOX_API AHBPlayerController : public APlayerController
 {
     GENERATED_BODY()
@@ -50,33 +50,40 @@ protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     UPROPERTY(EditDefaultsOnly, Category="Feedback") TObjectPtr<class UMaterialInterface> RingMaterial;
-    UPROPERTY(EditDefaultsOnly, Category="Input") TArray<FKey> KeyboardKeys;
-    UPROPERTY(EditDefaultsOnly, Category="Input") TArray<FKey> GamepadKeys;
 private:
-    void HandleUtility(const FInputActionValue& Value, int32 iAction, bool bFromGamepad);
-    void HandleSlot(const FInputActionValue& Value, int32 iSlot, bool bFromGamepad);
+    void HandleUtility(const FInputActionValue& Value, int32 iAction);
+    void HandleSlot(const FInputActionValue& Value, int32 iSlot);
     void HandleMove(const FInputActionValue& Value);
     void HandleKeyboardMove(const FInputActionValue& Value);
     void HandleAim(const FInputActionValue& Value);
     void SetInputFamily(bool bFromGamepad);
     void RebuildSlotMapping();
     void LoadBindings();
+    bool IsActionFromGamepad(const UInputMappingContext& Context, const UInputAction* Action) const;
     bool ValidateKeys(const TArray<FKey>& Keys, bool bForGamepad) const;
     bool IsReserved(const FKey& Key) const;
     bool IsNeutral() const;
     void CleanupMappingsAndBindings();
     void OnDeviceConnectionChanged(EInputDeviceConnectionState State, FPlatformUserId UserId, FInputDeviceId DeviceId);
+    UPROPERTY(Config) TSoftObjectPtr<UInputMappingContext> GameplayContext;
+    UPROPERTY(Config) TSoftObjectPtr<UInputMappingContext> SlotContext;
+    UPROPERTY(Config) TArray<TSoftObjectPtr<UInputAction>> UtilityActionAssets;
+    UPROPERTY(Config) TArray<TSoftObjectPtr<UInputAction>> SlotActionAssets;
+    UPROPERTY(Config) TSoftObjectPtr<UInputAction> GamepadMoveAsset;
+    UPROPERTY(Config) TSoftObjectPtr<UInputAction> KeyboardMoveAsset;
+    UPROPERTY(Config) TSoftObjectPtr<UInputAction> GamepadAimAsset;
+    UPROPERTY(Config) TSoftObjectPtr<UInputAction> AttackInPlaceAsset;
     UPROPERTY(Transient) TObjectPtr<UInputMappingContext> Mapping;
     UPROPERTY(Transient) TObjectPtr<UInputMappingContext> SlotMapping;
     UPROPERTY(Transient) TArray<TObjectPtr<UInputAction>> UtilityActions;
     UPROPERTY(Transient) TArray<TObjectPtr<UInputAction>> SlotActions;
-    UPROPERTY(Transient) TObjectPtr<UInputAction> MoveAction;
-    UPROPERTY(Transient) TObjectPtr<UInputAction> KeyboardMoveAction;
-    UPROPERTY(Transient) TObjectPtr<UInputAction> AimAction;
+    UPROPERTY(Transient) TObjectPtr<UInputAction> AttackInPlaceAction;
     UPROPERTY(Transient) TObjectPtr<AHBIndicator> BuildPreview;
     UPROPERTY(Transient) TObjectPtr<UUserWidget> PracticeHUD;
     TWeakObjectPtr<UEnhancedInputComponent> BoundInput;
     TArray<uint32> BindingHandles;
+    TArray<FKey> KeyboardKeys;
+    TArray<FKey> GamepadKeys;
     FTimerHandle DebugCheckTimer;
     FDelegateHandle ConnectionHandle;
     FVector2D MoveInput = FVector2D::ZeroVector;

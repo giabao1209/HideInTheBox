@@ -174,15 +174,57 @@ void AHBIndicator::Tick(float fDeltaSeconds)
     Super::Tick(fDeltaSeconds);
     this->fBurstElapsed += fDeltaSeconds;
     const float fAlpha = FMath::Clamp(this->fBurstElapsed / this->fBurstDuration, 0.0f, 1.0f);
-    const float fRadius = this->fBurstRadius * FMath::Lerp(0.3f, 1.0f, fAlpha);
-    this->SetActorScale3D(FVector(fRadius, fRadius, 1.0f));
+    if (this->bExpandBurst)
+    {
+        const float fRadius = this->fBurstRadius * FMath::Lerp(0.3f, 1.0f, fAlpha);
+        this->SetActorScale3D(FVector(fRadius, fRadius, 1.0f));
+    }
     if (this->Material)
     {
         this->Material->SetScalarParameterValue(TEXT("Opacity"), 1.0f - fAlpha);
     }
 }
 
-void UHBFeedbackComponent::PlayEffect(const FVector& Position, float fRadius, const FLinearColor& Color)
+void AHBIndicator::AddBoltSegment(const FVector& Start, const FVector& End, float Thickness, float Brightness)
+{
+    const FVector Direction = End - Start;
+    const FVector Scale((Direction.Size() + Thickness) / 100.0f, Thickness / 100.0f, Thickness / 100.0f);
+    const int32 Index = this->Segments->AddInstance(FTransform(Direction.Rotation(), (Start + End) * 0.5, Scale), true);
+    this->Segments->SetCustomDataValue(Index, 0, Brightness, true);
+}
+
+void AHBIndicator::PlayBolt(const FVector& Origin, const FVector& Impact, UMaterialInterface* BoltMaterial, float Duration)
+{
+    this->Segments->ClearInstances();
+    this->Segments->SetNumCustomDataFloats(1);
+    this->SetRingMaterial(BoltMaterial);
+    const FVector Side = FVector::CrossProduct(FVector::UpVector, Impact - Origin).GetSafeNormal();
+    const double Bend = FMath::Min(18.0, FVector::Dist(Origin, Impact) * 0.12);
+    const double Offsets[] = { -0.8, 0.65, -0.55, 1.0, 0.0 };
+    FVector Previous = Origin;
+    for (int32 Index = 0; Index < UE_ARRAY_COUNT(Offsets); ++Index)
+    {
+        const double Alpha = static_cast<double>(Index + 1) / UE_ARRAY_COUNT(Offsets);
+        const FVector Next = FMath::Lerp(Origin, Impact, Alpha) + Side * (Offsets[Index] * Bend);
+        this->AddBoltSegment(Previous, Next, 12.0f, 1.8f);
+        this->AddBoltSegment(Previous, Next, 5.0f, 12.0f);
+        Previous = Next;
+    }
+    for (int32 Index = 0; Index < 8; ++Index)
+    {
+        const double Angle = Index * (PI / 4.0);
+        const FVector Direction(FMath::Cos(Angle), FMath::Sin(Angle), Index % 2 == 0 ? 0.45 : 0.12);
+        this->AddBoltSegment(Impact + Direction * 7.0, Impact + Direction * (Index % 2 == 0 ? 56.0 : 35.0), 5.0f, 7.0f);
+    }
+    this->bExpandBurst = false;
+    this->fBurstDuration = FMath::Max(0.05f, Duration);
+    this->fBurstElapsed = 0.0f;
+    this->SetActorHiddenInGame(false);
+    this->SetActorTickEnabled(true);
+    this->SetLifeSpan(this->fBurstDuration);
+}
+
+AHBIndicator* UHBFeedbackComponent::CreateEffect()
 {
     for (int32 iIndex = this->Effects.Num() - 1; iIndex >= 0; --iIndex)
     {
@@ -195,6 +237,22 @@ void UHBFeedbackComponent::PlayEffect(const FVector& Position, float fRadius, co
     if (Effect)
     {
         this->Effects.Add(Effect);
+    }
+    return Effect;
+}
+
+void UHBFeedbackComponent::PlayEffect(const FVector& Position, float fRadius, const FLinearColor& Color)
+{
+    if (AHBIndicator* Effect = this->CreateEffect())
+    {
         Effect->PlayBurst(Position, fRadius, Color, 0.35f);
+    }
+}
+
+void UHBFeedbackComponent::PlayBolt(const FVector& Origin, const FVector& Impact, UMaterialInterface* BoltMaterial, float Duration)
+{
+    if (AHBIndicator* Effect = this->CreateEffect())
+    {
+        Effect->PlayBolt(Origin, Impact, BoltMaterial, Duration);
     }
 }

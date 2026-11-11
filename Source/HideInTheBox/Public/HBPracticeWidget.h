@@ -4,6 +4,7 @@
 #include "Blueprint/UserWidget.h"
 #include "CommonActivatableWidget.h"
 #include "CommonButtonBase.h"
+#include "CommonUserWidget.h"
 #include "HBPracticeWidget.generated.h"
 
 class AHBCombatant;
@@ -11,6 +12,7 @@ class UCommonActivatableWidgetStack;
 class UHBPauseMenu;
 class UProgressBar;
 class UTextBlock;
+struct FOnAttributeChangeData;
 
 UCLASS(Abstract, Blueprintable)
 class HIDEINTHEBOX_API UHBArenaHUD : public UCommonActivatableWidget
@@ -96,7 +98,7 @@ private:
 };
 
 UCLASS(Abstract, Blueprintable)
-class HIDEINTHEBOX_API UHBGASTargetWidget : public UUserWidget
+class HIDEINTHEBOX_API UHBGASTargetWidget : public UCommonUserWidget
 {
     GENERATED_BODY()
 
@@ -104,12 +106,15 @@ public:
     void SetCombatant(AHBCombatant* InCombatant);
 
 protected:
-    virtual void NativeTick(const FGeometry& Geometry, float DeltaTime) override;
+    virtual void NativeConstruct() override;
+    virtual void NativeDestruct() override;
 
     UPROPERTY(meta=(BindWidget)) TObjectPtr<UProgressBar> TargetHealthBar;
     UPROPERTY(meta=(BindWidget)) TObjectPtr<UTextBlock> TargetHealthValue;
 
 private:
     TWeakObjectPtr<AHBCombatant> Combatant;
+    void UnbindHealthChanges();
+    void OnHealthChanged(const FOnAttributeChangeData& Data);
     void RefreshHealth();
 };

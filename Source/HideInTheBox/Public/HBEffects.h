@@ -6,7 +6,7 @@
 #include "GameplayCueNotify_Static.h"
 #include "HBEffects.generated.h"
 
-/** Instant SetByCaller "Magnitude" additive health change. Damage is negative; Mend is positive. */
+/** Instant SetByCaller "Magnitude" additive health adjustment, used by Mend. */
 UCLASS()
 class HIDEINTHEBOX_API UHBGE_HealthDelta : public UGameplayEffect
 {
@@ -15,7 +15,7 @@ public:
     UHBGE_HealthDelta();
 };
 
-/** Instant SetByCaller "Magnitude" additive mana change (cost or regeneration). */
+/** Instant SetByCaller "Magnitude" additive mana change for costs and refills. */
 UCLASS()
 class HIDEINTHEBOX_API UHBGE_ManaDelta : public UGameplayEffect
 {
@@ -58,6 +58,26 @@ public:
     UHBGE_Damage();
 };
 
+UCLASS()
+class HIDEINTHEBOX_API UHBGE_DodgeImmunity : public UGameplayEffect
+{
+    GENERATED_BODY()
+public:
+    UHBGE_DodgeImmunity();
+};
+
+UCLASS()
+class HIDEINTHEBOX_API UHBGE_ManaRegeneration : public UGameplayEffect
+{
+    GENERATED_BODY()
+public:
+    UHBGE_ManaRegeneration();
+    static constexpr float Interval = 0.25f;
+};
+
+HIDEINTHEBOX_API float HBApplyDamageEffect(AActor* Source, AActor* Target, float Damage,
+    TSubclassOf<UGameplayEffect> EffectClass = UHBGE_Damage::StaticClass());
+
 UCLASS(Blueprintable)
 class HIDEINTHEBOX_API UHBGameplayCue_Pulse : public UGameplayCueNotify_Static
 {
@@ -66,4 +86,16 @@ protected:
     virtual bool OnExecute_Implementation(AActor* MyTarget, const FGameplayCueParameters& Parameters) const override;
     UPROPERTY(EditDefaultsOnly, Category="Presentation")
     FLinearColor ShockwaveColor = FLinearColor(1.0f, 0.58f, 0.18f);
+};
+
+UCLASS(Blueprintable)
+class HIDEINTHEBOX_API UHBGameplayCue_Bolt : public UGameplayCueNotify_Static
+{
+    GENERATED_BODY()
+protected:
+    virtual bool OnExecute_Implementation(AActor* MyTarget, const FGameplayCueParameters& Parameters) const override;
+    UPROPERTY(EditDefaultsOnly, Category="Presentation")
+    TObjectPtr<class UMaterialInterface> BoltMaterial;
+    UPROPERTY(EditDefaultsOnly, Category="Presentation", meta=(ClampMin="0.05"))
+    float BoltDuration = 0.32f;
 };

@@ -1,7 +1,9 @@
 #include "HBLoadout.h"
+#include "HBEffects.h"
 #include "HBGameplayAbility.h"
 #include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
+#include "AbilitySystemComponent.h"
 #include "Engine/World.h"
 
 UHBLoadoutData::UHBLoadoutData()
@@ -151,34 +153,53 @@ float UHBLoadoutComponent::GetManaFraction() const
     return Player ? FMath::Clamp(Player->GetGASMana() / FMath::Max(1.0f, Player->GetGASMaxMana()), 0.0f, 1.0f) : 0.0f;
 }
 
-void UHBLoadoutComponent::Regenerate(float DeltaSeconds)
+void UHBLoadoutComponent::RefreshManaRegeneration()
 {
-    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
-    if (!Player || !Definition || !Player->HasAuthority() || !FMath::IsFinite(DeltaSeconds) || DeltaSeconds <= 0.0f)
+    const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    if (!Player || !Player->HasAuthority())
     {
         return;
     }
-    // Coalesce regeneration into four GAS effects per second instead of one every frame.
-    RegenAccumulator += DeltaSeconds;
-    if (RegenAccumulator >= 0.25f)
+    UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();
+    const float Rate = Definition ? Definition->fManaRegeneration : 0.0f;
+    const bool bShouldRegenerate = ASC->GetAvatarActor() == Player && Player->IsLocallyControlled() &&
+        Player->IsAlive() && !Player->IsBuilding() && FMath::IsFinite(Rate) && Rate > 0.0f;
+    if (!bShouldRegenerate)
     {
-        const float Amount = FMath::Max(0.0f, Definition->fManaRegeneration) * RegenAccumulator;
-        RegenAccumulator = 0.0f;
-        if (Player->GetGASMana() < Player->GetGASMaxMana())
+        if (ManaRegenerationHandle.IsValid())
         {
-            Player->ApplyGASManaDelta(Amount);
+            ASC->RemoveActiveGameplayEffect(ManaRegenerationHandle);
+            ManaRegenerationHandle.Invalidate();
         }
+        return;
+    }
+    if (ASC->GetActiveGameplayEffect(ManaRegenerationHandle))
+    {
+        return;
+    }
+    const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(UHBGE_ManaRegeneration::StaticClass(),
+        1.0f, ASC->MakeEffectContext());
+    if (Spec.IsValid())
+    {
+        Spec.Data->SetSetByCallerMagnitude(FName(TEXT("Magnitude")), Rate * UHBGE_ManaRegeneration::Interval);
+        Spec.Data->DynamicGrantedTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("State.ManaRegenerating")));
+        ManaRegenerationHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
     }
 }
 
 void UHBLoadoutComponent::ResetResources()
 {
-    RegenAccumulator = 0.0f;
     AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
-    if (Player)
+    if (Player && Player->HasAuthority())
     {
+        if (ManaRegenerationHandle.IsValid())
+        {
+            Player->GetAbilitySystemComponent()->RemoveActiveGameplayEffect(ManaRegenerationHandle);
+            ManaRegenerationHandle.Invalidate();
+        }
         Player->ResetGASMana(Definition ? Definition->fMaxMana : 100.0f);
         Player->ClearGASCooldowns();
+        RefreshManaRegeneration();
     }
 }
 

@@ -15,7 +15,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputMappingContext.h"
 #include "EnhancedActionKeyMapping.h"
-#include "InputModifiers.h"
+#include "EnhancedPlayerInput.h"
 #include "InputAction.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
@@ -25,11 +25,9 @@ namespace HBInput
 {
     enum class EUtility : int32
     {
-        EU_Advance, EU_Build, EU_Cycle, EU_Repair, EU_Cancel, EU_Pause, EU_Restart, EU_Interact, EU_Diagnostics, EU_Count
+        EU_Advance, EU_Build, EU_Cycle, EU_Repair, EU_Cancel, EU_Pause, EU_Restart,
+        EU_Interact, EU_Diagnostics, EU_PracticeReset, EU_PracticeDamage, EU_PracticeRefill, EU_Count
     };
-    const FKey KeyboardUtilities[] = { EKeys::Enter, EKeys::B, EKeys::Tab, EKeys::R, EKeys::SpaceBar, EKeys::P, EKeys::F5, EKeys::E, EKeys::F2 };
-    const FKey GamepadUtilities[] = { EKeys::Gamepad_DPad_Up, EKeys::Gamepad_DPad_Down, EKeys::Gamepad_DPad_Right, EKeys::Gamepad_DPad_Left,
-        EKeys::Gamepad_RightThumbstick, EKeys::Gamepad_Special_Right, EKeys::Gamepad_Special_Left, EKeys::Gamepad_LeftThumbstick, EKeys::Gamepad_LeftTrigger };
     const TCHAR* SaveSlot = TEXT("HideInTheBox_Input_v1");
 }
 
@@ -37,9 +35,6 @@ AHBPlayerController::AHBPlayerController()
 {
     this->bShowMouseCursor = true;
     this->DefaultMouseCursor = EMouseCursor::Crosshairs;
-    this->KeyboardKeys = { EKeys::LeftMouseButton, EKeys::RightMouseButton, EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four };
-    this->GamepadKeys = { EKeys::Gamepad_FaceButton_Bottom, EKeys::Gamepad_FaceButton_Right, EKeys::Gamepad_FaceButton_Left,
-        EKeys::Gamepad_FaceButton_Top, EKeys::Gamepad_LeftShoulder, EKeys::Gamepad_RightShoulder };
 }
 
 void AHBPlayerController::CleanupMappingsAndBindings()
@@ -78,60 +73,81 @@ void AHBPlayerController::SetupInputComponent()
         UE_LOG(LogHideInTheBox, Error, TEXT("EnhancedInputComponent missing; inspect DefaultInput.ini"));
         return;
     }
-    this->BoundInput = Enhanced;
-    this->LoadBindings();
-    this->Mapping = NewObject<UInputMappingContext>(this);
-    this->SlotMapping = NewObject<UInputMappingContext>(this);
-    for (int32 iFamily = 0; iFamily < 2; ++iFamily)
+    this->Mapping = this->GameplayContext.LoadSynchronous();
+    UInputMappingContext* DefaultSlots = this->SlotContext.LoadSynchronous();
+    UInputAction* MoveAction = this->GamepadMoveAsset.LoadSynchronous();
+    UInputAction* KeyboardMoveAction = this->KeyboardMoveAsset.LoadSynchronous();
+    UInputAction* AimAction = this->GamepadAimAsset.LoadSynchronous();
+    this->AttackInPlaceAction = this->AttackInPlaceAsset.LoadSynchronous();
+    if (!this->Mapping || !DefaultSlots || !MoveAction || !KeyboardMoveAction || !AimAction || !this->AttackInPlaceAction ||
+        this->UtilityActionAssets.Num() != static_cast<int32>(HBInput::EUtility::EU_Count) ||
+        this->SlotActionAssets.Num() != HBRuleCore::iSlotCount)
     {
-        const bool bPad = iFamily == 1;
-        for (int32 iIndex = 0; iIndex < static_cast<int32>(HBInput::EUtility::EU_Count); ++iIndex)
+        UE_LOG(LogHideInTheBox, Error, TEXT("Arena Input Actions or Mapping Contexts are missing. Inspect DefaultInput.ini."));
+        return;
+    }
+    for (const TSoftObjectPtr<UInputAction>& Asset : this->UtilityActionAssets)
+    {
+        UInputAction* Action = Asset.LoadSynchronous();
+        if (!Action || !this->Mapping->HasMappingForInputAction(Action))
         {
-            UInputAction* Action = NewObject<UInputAction>(this);
-            Action->ValueType = EInputActionValueType::Boolean;
-            Action->bTriggerWhenPaused = iIndex == static_cast<int32>(HBInput::EUtility::EU_Pause) || iIndex == static_cast<int32>(HBInput::EUtility::EU_Diagnostics);
-            this->UtilityActions.Add(Action);
-            this->Mapping->MapKey(Action, bPad ? HBInput::GamepadUtilities[iIndex] : HBInput::KeyboardUtilities[iIndex]);
-            this->BindingHandles.Add(Enhanced->BindAction(Action, ETriggerEvent::Started, this, &AHBPlayerController::HandleUtility, iIndex, bPad).GetHandle());
+            UE_LOG(LogHideInTheBox, Error, TEXT("Utility Input Action %s is missing from IMC_ArenaGameplay."), *Asset.ToString());
+            return;
         }
-        for (int32 iSlot = 0; iSlot < HBRuleCore::iSlotCount; ++iSlot)
+        this->UtilityActions.Add(Action);
+    }
+    this->KeyboardKeys.SetNum(HBRuleCore::iSlotCount);
+    this->GamepadKeys.SetNum(HBRuleCore::iSlotCount);
+    for (int32 iSlot = 0; iSlot < this->SlotActionAssets.Num(); ++iSlot)
+    {
+        UInputAction* Action = this->SlotActionAssets[iSlot].LoadSynchronous();
+        if (!Action || this->SlotActions.Contains(Action))
         {
-            UInputAction* Action = NewObject<UInputAction>(this);
-            Action->ValueType = EInputActionValueType::Boolean;
-            this->SlotActions.Add(Action);
-            this->BindingHandles.Add(Enhanced->BindAction(Action, ETriggerEvent::Started, this, &AHBPlayerController::HandleSlot, iSlot, bPad).GetHandle());
+            UE_LOG(LogHideInTheBox, Error, TEXT("Input slot %d needs a unique Input Action in DefaultInput.ini."), iSlot);
+            return;
+        }
+        this->SlotActions.Add(Action);
+        for (const FEnhancedActionKeyMapping& Entry : DefaultSlots->GetMappings())
+        {
+            if (Entry.Action != Action)
+            {
+                continue;
+            }
+            FKey& DefaultKey = Entry.Key.IsGamepadKey() ? this->GamepadKeys[iSlot] : this->KeyboardKeys[iSlot];
+            if (DefaultKey.IsValid())
+            {
+                UE_LOG(LogHideInTheBox, Error, TEXT("Slot %d needs one keyboard/mouse key and one gamepad key in IMC_ArenaSlots."), iSlot);
+                return;
+            }
+            DefaultKey = Entry.Key;
         }
     }
-    this->MoveAction = NewObject<UInputAction>(this);
-    this->MoveAction->ValueType = EInputActionValueType::Axis2D;
-    this->Mapping->MapKey(this->MoveAction, EKeys::Gamepad_Left2D);
-    this->AimAction = NewObject<UInputAction>(this);
-    this->AimAction->ValueType = EInputActionValueType::Axis2D;
-    this->Mapping->MapKey(this->AimAction, EKeys::Gamepad_Right2D);
-    this->KeyboardMoveAction = NewObject<UInputAction>(this);
-    this->KeyboardMoveAction->ValueType = EInputActionValueType::Axis2D;
-    this->KeyboardMoveAction->AccumulationBehavior = EInputActionAccumulationBehavior::Cumulative;
-    const FKey MovementKeys[] = { EKeys::D, EKeys::A, EKeys::W, EKeys::S };
-    for (int32 iIndex = 0; iIndex < 4; ++iIndex)
+    if (!this->ValidateKeys(this->KeyboardKeys, false) || !this->ValidateKeys(this->GamepadKeys, true))
     {
-        FEnhancedActionKeyMapping& KeyMapping = this->Mapping->MapKey(this->KeyboardMoveAction, MovementKeys[iIndex]);
-        if (iIndex == 1 || iIndex == 3)
-        {
-            KeyMapping.Modifiers.Add(NewObject<UInputModifierNegate>(this->Mapping));
-        }
-        if (iIndex >= 2)
-        {
-            UInputModifierSwizzleAxis* Swizzle = NewObject<UInputModifierSwizzleAxis>(this->Mapping);
-            Swizzle->Order = EInputAxisSwizzle::YXZ;
-            KeyMapping.Modifiers.Add(Swizzle);
-        }
+        UE_LOG(LogHideInTheBox, Error, TEXT("Invalid or conflicting slot keys in IMC_ArenaSlots. Check both input families."));
+        return;
+    }
+    this->LoadBindings();
+
+    // Keep per-player remaps out of the authored IMC while preserving its mapping modifiers and triggers.
+    this->SlotMapping = DuplicateObject<UInputMappingContext>(DefaultSlots, this);
+    this->BoundInput = Enhanced;
+    for (int32 iAction = 0; iAction < this->UtilityActions.Num(); ++iAction)
+    {
+        this->BindingHandles.Add(Enhanced->BindAction(this->UtilityActions[iAction], ETriggerEvent::Started,
+            this, &AHBPlayerController::HandleUtility, iAction).GetHandle());
+    }
+    for (int32 iSlot = 0; iSlot < this->SlotActions.Num(); ++iSlot)
+    {
+        this->BindingHandles.Add(Enhanced->BindAction(this->SlotActions[iSlot], ETriggerEvent::Started,
+            this, &AHBPlayerController::HandleSlot, iSlot).GetHandle());
     }
     const ETriggerEvent Events[] = { ETriggerEvent::Triggered, ETriggerEvent::Completed, ETriggerEvent::Canceled };
     for (ETriggerEvent Event : Events)
     {
-        this->BindingHandles.Add(Enhanced->BindAction(this->MoveAction, Event, this, &AHBPlayerController::HandleMove).GetHandle());
-        this->BindingHandles.Add(Enhanced->BindAction(this->KeyboardMoveAction, Event, this, &AHBPlayerController::HandleKeyboardMove).GetHandle());
-        this->BindingHandles.Add(Enhanced->BindAction(this->AimAction, Event, this, &AHBPlayerController::HandleAim).GetHandle());
+        this->BindingHandles.Add(Enhanced->BindAction(MoveAction, Event, this, &AHBPlayerController::HandleMove).GetHandle());
+        this->BindingHandles.Add(Enhanced->BindAction(KeyboardMoveAction, Event, this, &AHBPlayerController::HandleKeyboardMove).GetHandle());
+        this->BindingHandles.Add(Enhanced->BindAction(AimAction, Event, this, &AHBPlayerController::HandleAim).GetHandle());
     }
     UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(this->GetLocalPlayer());
     if (Subsystem)
@@ -216,8 +232,28 @@ void AHBPlayerController::HandleAim(const FInputActionValue& Value)
     }
 }
 
-void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot, bool bFromGamepad)
+bool AHBPlayerController::IsActionFromGamepad(const UInputMappingContext& Context, const UInputAction* Action) const
 {
+    bool bFromGamepad = this->bGamepad;
+    float PressedTime = TNumericLimits<float>::Max();
+    for (const FEnhancedActionKeyMapping& Entry : Context.GetMappings())
+    {
+        if (Entry.Action == Action && this->IsInputKeyDown(Entry.Key))
+        {
+            const float Time = this->GetInputKeyTimeDown(Entry.Key);
+            if (Time < PressedTime)
+            {
+                PressedTime = Time;
+                bFromGamepad = Entry.Key.IsGamepadKey();
+            }
+        }
+    }
+    return bFromGamepad;
+}
+
+void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot)
+{
+    const bool bFromGamepad = this->IsActionFromGamepad(*this->SlotMapping, this->SlotActions[iSlot]);
     UHBDebugSubsystem::Record(this, TEXT("Input"), FString::Printf(TEXT("Slot %d from %s paused=%d neutralWait=%d"), iSlot, bFromGamepad ? TEXT("Gamepad") : TEXT("Mouse/KB"), this->IsPaused(), this->bAwaitNeutral));
     if (this->IsPaused() || this->bAwaitNeutral)
     {
@@ -261,7 +297,10 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
         {
             AimPoint = Hit.ImpactPoint;
         }
-        bInPlace = this->IsInputKeyDown(EKeys::LeftShift) || this->IsInputKeyDown(EKeys::RightShift);
+        if (const UEnhancedPlayerInput* Enhanced = Cast<UEnhancedPlayerInput>(this->PlayerInput))
+        {
+            bInPlace = Enhanced->GetActionValue(this->AttackInPlaceAction).Get<bool>();
+        }
         if (iSlot == 0 && Ability == EHBAbility::EHBA_Basic && !Target)
         {
             if (bFloor && !bInPlace)
@@ -276,11 +315,36 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
             return;
         }
     }
+    const bool bBolt = Ability == EHBAbility::EHBA_Bolt;
+    const float PreviousHealth = bBolt && IsValid(Target) ? Target->GetHealth() : 0.0f;
     const EHBActionResult Result = Loadout->TryActivateSlot(iSlot, Target, AimPoint, bInPlace);
+    if (bBolt)
+    {
+        switch (Result)
+        {
+            case EHBActionResult::EHBAR_Accepted:
+            {
+                const float CurrentHealth = IsValid(Target) ? Target->GetHealth() : 0.0f;
+                this->LastActionResult = FString::Printf(TEXT("Bolt hit for %.0f damage"), FMath::Max(0.0f, PreviousHealth - CurrentHealth));
+                return;
+            }
+            case EHBActionResult::EHBAR_InvalidTarget:
+                this->LastActionResult = TEXT("Bolt: Aim at a visible enemy within range");
+                return;
+            case EHBActionResult::EHBAR_NoMana:
+                this->LastActionResult = TEXT("Bolt: Not enough mana");
+                return;
+            case EHBActionResult::EHBAR_Cooldown:
+                this->LastActionResult = TEXT("Bolt: On cooldown");
+                return;
+            default:
+                break;
+        }
+    }
     this->LastActionResult = FString::Printf(TEXT("Slot %d: %s"), iSlot + 1, *UEnum::GetValueAsString(Result));
 }
 
-void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iAction, bool bFromGamepad)
+void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iAction)
 {
     const HBInput::EUtility Action = static_cast<HBInput::EUtility>(iAction);
     if (Action == HBInput::EUtility::EU_Diagnostics)
@@ -288,8 +352,10 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         this->HBDebug();
         return;
     }
-    const TCHAR* UtilityNames[] = { TEXT("Advance"), TEXT("Build"), TEXT("Socket"), TEXT("Repair"), TEXT("Cancel"), TEXT("Pause"), TEXT("Restart"), TEXT("Interact"), TEXT("Diagnostics") };
-    UHBDebugSubsystem::Record(this, TEXT("Input"), FString::Printf(TEXT("Utility %s from %s"), iAction >= 0 && iAction < 9 ? UtilityNames[iAction] : TEXT("Unknown"), bFromGamepad ? TEXT("Gamepad") : TEXT("Mouse/KB")));
+    const UInputAction* InputAction = this->UtilityActions[iAction];
+    const bool bFromGamepad = this->IsActionFromGamepad(*this->Mapping, InputAction);
+    UHBDebugSubsystem::Record(this, TEXT("Input"), FString::Printf(TEXT("Utility %s from %s"),
+        *GetNameSafe(InputAction), bFromGamepad ? TEXT("Gamepad") : TEXT("Mouse/KB")));
     if (Action == HBInput::EUtility::EU_Pause)
     {
         this->SetArenaPaused(!this->IsPaused());
@@ -322,6 +388,9 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         case HBInput::EUtility::EU_Cycle: Mode->CycleBuildSocket(); break;
         case HBInput::EUtility::EU_Repair: Mode->RepairGate(); break;
         case HBInput::EUtility::EU_Interact: Mode->ClaimNearbyGreed(); break;
+        case HBInput::EUtility::EU_PracticeReset: this->HBGASReset(); break;
+        case HBInput::EUtility::EU_PracticeDamage: this->HBGASDamage(); break;
+        case HBInput::EUtility::EU_PracticeRefill: this->HBGASRefill(); break;
         case HBInput::EUtility::EU_Cancel: PlayerCharacter->SetBuildMode(false); this->ResetTransientInput(); break;
         default: break;
     }
@@ -329,32 +398,18 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
 
 bool AHBPlayerController::IsNeutral() const
 {
-    for (const FKey& Key : this->KeyboardKeys)
+    for (const UInputMappingContext* Context : { this->Mapping.Get(), this->SlotMapping.Get() })
     {
-        if (this->IsInputKeyDown(Key))
+        if (!Context)
         {
-            return false;
+            continue;
         }
-    }
-    for (const FKey& Key : this->GamepadKeys)
-    {
-        if (this->IsInputKeyDown(Key))
+        for (const FEnhancedActionKeyMapping& Entry : Context->GetMappings())
         {
-            return false;
-        }
-    }
-    for (const FKey& Key : HBInput::KeyboardUtilities)
-    {
-        if (this->IsInputKeyDown(Key))
-        {
-            return false;
-        }
-    }
-    for (const FKey& Key : HBInput::GamepadUtilities)
-    {
-        if (this->IsInputKeyDown(Key))
-        {
-            return false;
+            if (!Entry.Key.IsAnalog() && this->IsInputKeyDown(Entry.Key))
+            {
+                return false;
+            }
         }
     }
     return this->MoveInput.IsNearlyZero() && this->AimInput.IsNearlyZero() && this->KeyboardInput.IsNearlyZero();
@@ -381,12 +436,6 @@ void AHBPlayerController::PlayerTick(float fDeltaSeconds)
     if (this->IsPaused() || Mode->GetPhase() == EHBPhase::EHBP_GameOver || !PlayerCharacter->IsAlive())
     {
         return;
-    }
-    if (Mode->IsGASDemo())
-    {
-        if (this->WasInputKeyJustPressed(EKeys::F6)) { this->HBGASReset(); return; }
-        if (this->WasInputKeyJustPressed(EKeys::F7)) { this->HBGASDamage(); }
-        if (this->WasInputKeyJustPressed(EKeys::F8)) { this->HBGASRefill(); }
     }
     PlayerCharacter->SetDirectInput(this->bGamepad ? this->MoveInput : this->KeyboardInput);
     AHBEnemyCharacter* Hover = nullptr;
@@ -485,26 +534,18 @@ void AHBPlayerController::RestartArena()
 
 bool AHBPlayerController::IsReserved(const FKey& Key) const
 {
-    const FKey Reserved[] = { EKeys::W, EKeys::A, EKeys::S, EKeys::D, EKeys::LeftShift, EKeys::RightShift, EKeys::Escape, EKeys::Tilde };
-    for (const FKey& Entry : Reserved)
+    if (Key == EKeys::Escape || Key == EKeys::Tilde)
     {
-        if (Entry == Key)
-        {
-            return true;
-        }
+        return true;
     }
-    for (const FKey& Entry : HBInput::KeyboardUtilities)
+    if (this->Mapping)
     {
-        if (Entry == Key)
+        for (const FEnhancedActionKeyMapping& Entry : this->Mapping->GetMappings())
         {
-            return true;
-        }
-    }
-    for (const FKey& Entry : HBInput::GamepadUtilities)
-    {
-        if (Entry == Key)
-        {
-            return true;
+            if (Entry.Key == Key)
+            {
+                return true;
+            }
         }
     }
     return false;
@@ -536,30 +577,24 @@ void AHBPlayerController::LoadBindings()
         this->KeyboardKeys = Saved->KeyboardKeys;
         this->GamepadKeys = Saved->GamepadKeys;
     }
-    if (!this->ValidateKeys(this->KeyboardKeys, false))
-    {
-        this->KeyboardKeys = { EKeys::LeftMouseButton, EKeys::RightMouseButton, EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four };
-    }
-    if (!this->ValidateKeys(this->GamepadKeys, true))
-    {
-        this->GamepadKeys = { EKeys::Gamepad_FaceButton_Bottom, EKeys::Gamepad_FaceButton_Right, EKeys::Gamepad_FaceButton_Left,
-            EKeys::Gamepad_FaceButton_Top, EKeys::Gamepad_LeftShoulder, EKeys::Gamepad_RightShoulder };
-    }
 }
 
 void AHBPlayerController::RebuildSlotMapping()
 {
     UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(this->GetLocalPlayer());
-    if (!Subsystem || !this->SlotMapping || this->SlotActions.Num() != 12)
+    if (!Subsystem || !this->SlotMapping)
     {
         return;
     }
     Subsystem->RemoveMappingContext(this->SlotMapping);
-    this->SlotMapping->UnmapAll();
-    for (int32 iSlot = 0; iSlot < HBRuleCore::iSlotCount; ++iSlot)
+    for (int32 iIndex = 0; iIndex < this->SlotMapping->GetMappings().Num(); ++iIndex)
     {
-        this->SlotMapping->MapKey(this->SlotActions[iSlot], this->KeyboardKeys[iSlot]);
-        this->SlotMapping->MapKey(this->SlotActions[iSlot + HBRuleCore::iSlotCount], this->GamepadKeys[iSlot]);
+        FEnhancedActionKeyMapping& Entry = this->SlotMapping->GetMapping(iIndex);
+        const int32 iSlot = this->SlotActions.IndexOfByKey(Entry.Action);
+        if (this->SlotActions.IsValidIndex(iSlot))
+        {
+            Entry.Key = this->GetSlotKey(iSlot, Entry.Key.IsGamepadKey());
+        }
     }
     FModifyContextOptions Options;
     Options.bIgnoreAllPressedKeysUntilRelease = true;
@@ -570,7 +605,7 @@ void AHBPlayerController::RebuildSlotMapping()
 bool AHBPlayerController::RebindSlotKey(int32 iSlot, FKey NewKey, bool bForGamepad)
 {
     TArray<FKey>& Keys = bForGamepad ? this->GamepadKeys : this->KeyboardKeys;
-    if (!Keys.IsValidIndex(iSlot))
+    if (!this->SlotMapping || !Keys.IsValidIndex(iSlot))
     {
         return false;
     }
@@ -694,7 +729,7 @@ void AHBPlayerController::HBDebugCheck()
 {
 #if !UE_BUILD_SHIPPING
     TArray<FString> Checks;
-    Checks.Add(Cast<UEnhancedInputComponent>(this->InputComponent) && this->Mapping && this->SlotMapping ? TEXT("OK Enhanced Input component and owned mapping objects exist.") : TEXT("ERROR Enhanced Input missing: inspect DefaultInput.ini and controller."));
+    Checks.Add(this->BoundInput.IsValid() && this->Mapping && this->SlotMapping ? TEXT("OK Enhanced Input contexts loaded from IMC assets.") : TEXT("ERROR Enhanced Input missing: inspect DefaultInput.ini and /Game/Input."));
     AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(this->GetPawn());
     if (PlayerCharacter)
     {

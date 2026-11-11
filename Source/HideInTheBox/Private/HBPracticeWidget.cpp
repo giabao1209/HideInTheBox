@@ -8,6 +8,7 @@
 #include "Engine/EngineBaseTypes.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
+#include "HBAttributes.h"
 #include "HBGameMode.h"
 #include "HBPlayerCharacter.h"
 #include "HBPlayerController.h"
@@ -165,10 +166,12 @@ void UHBPracticeWidget::Refresh()
         {
             Controls->SetText(FText::FromString(bGamepad
                 ? TEXT("D-PAD UP  PHASE    /    L3  CACHE    /    DOWN  BUILD    /    LEFT  REPAIR    /    START  PAUSE    /    LT  DIAGNOSTICS")
-                : TEXT("ENTER  PHASE    /    E  CACHE    /    B  BUILD    /    R  REPAIR    /    P  PAUSE    /    F2  DIAGNOSTICS")));
+                : TEXT("ENTER PHASE / E CACHE / B BUILD / R REPAIR / P PAUSE / F2 DEBUG / F6 RESET / F7 HIT / F8 +MP")));
         }
     }
 
+    static const FGameplayTag GuardTag = FGameplayTag::RequestGameplayTag(TEXT("State.Guarding"));
+    const float GuardRemaining = Player->GetGASEffectTimeRemaining(GuardTag);
     for (int32 SlotIndex = 0; SlotIndex < HBRuleCore::iSlotCount; ++SlotIndex)
     {
         UTextBlock* SlotLabel = Cast<UTextBlock>(GetWidgetFromName(FName(*FString::Printf(TEXT("Ability%d"), SlotIndex))));
@@ -176,7 +179,8 @@ void UHBPracticeWidget::Refresh()
         const FHBAbilitySpec Spec = Player->GetLoadout()->GetSlotSpec(SlotIndex);
         UImage* SlotIcon = Cast<UImage>(GetWidgetFromName(FName(*FString::Printf(TEXT("AbilityIcon%d"), SlotIndex))));
         const float Remaining = Player->GetLoadout()->GetSlotCooldown(SlotIndex);
-        const float ManaCost = Spec.GetManaCost(Player->GetLoadout()->GetSlotAbility(SlotIndex));
+        const EHBAbility Ability = Player->GetLoadout()->GetSlotAbility(SlotIndex);
+        const float ManaCost = Spec.GetManaCost(Ability);
         const bool bCanAfford = Player->GetGASMana() + KINDA_SMALL_NUMBER >= ManaCost;
         if (SlotIcon)
         {
@@ -189,8 +193,13 @@ void UHBPracticeWidget::Refresh()
         const FKey Key = Controller->GetSlotKey(SlotIndex, Controller->IsUsingGamepad());
         const FText KeyLabel = Key == EKeys::LeftMouseButton ? NSLOCTEXT("GASDemo", "LMB", "LMB") :
             Key == EKeys::RightMouseButton ? NSLOCTEXT("GASDemo", "RMB", "RMB") : Key.GetDisplayName();
-        const FText State = Remaining > 0.0f ? FText::FromString(FString::Printf(TEXT("%.1f s"), Remaining)) :
+        FText State = Remaining > 0.0f ? FText::FromString(FString::Printf(TEXT("%.1f s"), Remaining)) :
             (bCanAfford ? NSLOCTEXT("GASDemo", "Ready", "Ready") : NSLOCTEXT("GASDemo", "NoMana", "Low MP"));
+        if (Ability == EHBAbility::EHBA_Guard && GuardRemaining > 0.0f)
+        {
+            const FText Seconds = FText::FromString(FString::Printf(TEXT("%.1f"), FMath::Max(0.1f, GuardRemaining)));
+            State = FText::Format(NSLOCTEXT("GASDemo", "GuardActive", "Active {0}s"), Seconds);
+        }
         SlotLabel->SetText(FText::Format(NSLOCTEXT("GASDemo", "Slot", "{0}  {1}\n{2}  /  {3} MP"), KeyLabel, Spec.Name, State, FText::AsNumber(ManaCost)));
     }
 
@@ -207,19 +216,50 @@ void UHBPracticeWidget::Refresh()
 
 void UHBGASTargetWidget::SetCombatant(AHBCombatant* InCombatant)
 {
+    UnbindHealthChanges();
     Combatant = InCombatant;
+    if (IsValid(InCombatant))
+    {
+        UAbilitySystemComponent* ASC = InCombatant->GetAbilitySystemComponent();
+        ASC->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetHealthAttribute())
+            .AddUObject(this, &UHBGASTargetWidget::OnHealthChanged);
+        ASC->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetMaxHealthAttribute())
+            .AddUObject(this, &UHBGASTargetWidget::OnHealthChanged);
+    }
     RefreshHealth();
 }
 
-void UHBGASTargetWidget::NativeTick(const FGeometry& Geometry, float DeltaTime)
+void UHBGASTargetWidget::NativeConstruct()
 {
-    Super::NativeTick(Geometry, DeltaTime);
+    Super::NativeConstruct();
+    SetCombatant(Combatant.Get());
+}
+
+void UHBGASTargetWidget::NativeDestruct()
+{
+    UnbindHealthChanges();
+    Super::NativeDestruct();
+}
+
+void UHBGASTargetWidget::UnbindHealthChanges()
+{
+    if (const AHBCombatant* Target = Combatant.Get())
+    {
+        UAbilitySystemComponent* ASC = Target->GetAbilitySystemComponent();
+        ASC->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetHealthAttribute()).RemoveAll(this);
+        ASC->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetMaxHealthAttribute()).RemoveAll(this);
+    }
+}
+
+void UHBGASTargetWidget::OnHealthChanged(const FOnAttributeChangeData& Data)
+{
     RefreshHealth();
 }
 
 void UHBGASTargetWidget::RefreshHealth()
 {
-    if (const AHBCombatant* Target = Combatant.Get())
+    const AHBCombatant* Target = Combatant.Get();
+    if (Target && TargetHealthBar && TargetHealthValue)
     {
         TargetHealthBar->SetPercent(Target->GetHealth() / FMath::Max(1.0f, Target->GetMaxHealth()));
         TargetHealthValue->SetText(FText::AsNumber(FMath::RoundToInt(Target->GetHealth())));

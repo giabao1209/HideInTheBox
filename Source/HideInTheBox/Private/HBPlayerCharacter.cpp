@@ -14,12 +14,10 @@
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/DamageType.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
-#include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -148,12 +146,10 @@ bool AHBPlayerCharacter::ExecutePendingGuard(TSubclassOf<UGameplayEffect> GuardE
 bool AHBPlayerCharacter::ExecutePendingPulse(TSubclassOf<UGameplayEffect> DamageEffectClass)
 {
     const AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
-    FGameplayEffectSpecHandle Effect = AbilitySystem->MakeOutgoingSpec(DamageEffectClass, 1.0f, AbilitySystem->MakeEffectContext());
-    if (!Mode || !Effect.IsValid())
+    if (!Mode || !DamageEffectClass)
     {
         return false;
     }
-    Effect.Data->SetSetByCallerMagnitude(FName(TEXT("Magnitude")), FMath::Max(0.0f, PendingGASSpec.fPower));
     const TArray<TWeakObjectPtr<AHBEnemyCharacter>> Targets = Mode->GetEnemies();
     for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Targets)
     {
@@ -162,7 +158,7 @@ bool AHBPlayerCharacter::ExecutePendingPulse(TSubclassOf<UGameplayEffect> Damage
             FVector::DistSquaredXY(PendingGASAim, Enemy->GetActorLocation()) <= FMath::Square(PendingGASSpec.fRadius) &&
             HasHitLine(Enemy->GetActorLocation(), Enemy))
         {
-            AbilitySystem->ApplyGameplayEffectSpecToTarget(*Effect.Data, Enemy->GetAbilitySystemComponent());
+            HBApplyDamageEffect(this, Enemy, PendingGASSpec.fPower, DamageEffectClass);
         }
     }
     FGameplayCueParameters Cue;
@@ -231,12 +227,17 @@ void AHBPlayerCharacter::ApplyGASCooldown(EHBAbility Ability, float Duration)
 
 float AHBPlayerCharacter::GetGASCooldown(EHBAbility Ability) const
 {
-    if (!AbilitySystem || Ability == EHBAbility::EHBA_Basic)
+    return Ability == EHBAbility::EHBA_Basic ? 0.0f : GetGASEffectTimeRemaining(HBGetCooldownTag(Ability));
+}
+
+float AHBPlayerCharacter::GetGASEffectTimeRemaining(FGameplayTag Tag) const
+{
+    if (!AbilitySystem)
     {
         return 0.0f;
     }
     const FGameplayEffectQuery Query = FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(
-        FGameplayTagContainer(HBGetCooldownTag(Ability)));
+        FGameplayTagContainer(Tag));
     const TArray<float> Remaining = AbilitySystem->GetActiveEffectsTimeRemaining(Query);
     float Longest = 0.0f;
     for (const float Seconds : Remaining)
@@ -421,7 +422,6 @@ void AHBPlayerCharacter::Tick(float fDeltaSeconds)
         this->Feedback->HideAll();
         return;
     }
-    this->Loadout->Regenerate(fDeltaSeconds);
     if (this->bDodging)
     {
         if (this->GetWorld()->GetTimeSeconds() >= this->fDodgeEndTime)
@@ -522,7 +522,7 @@ void AHBPlayerCharacter::DeliverAttackHit()
     AHBEnemyCharacter* Target = this->AttackTarget.Get();
     if (IsValid(Target) && Target->IsAlive() && FVector::DistSquaredXY(this->GetActorLocation(), Target->GetActorLocation()) <= FMath::Square(this->fAttackRange + 25.0f) && this->HasHitLine(Target->GetActorLocation(), Target))
     {
-        UGameplayStatics::ApplyDamage(Target, this->fAttackDamage, this->GetController(), this, UDamageType::StaticClass());
+        HBApplyDamageEffect(this, Target, this->fAttackDamage);
         ++this->iHitCount;
         this->Feedback->PlayEffect(this->GetActorLocation() - FVector(0.0f, 0.0f, this->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()), 90.0f, FLinearColor(1.0f, 0.5f, 0.15f));
     }
@@ -629,13 +629,24 @@ bool AHBPlayerCharacter::ExecuteAbility(EHBAbility Ability, const FHBAbilitySpec
     }
     if (Ability == EHBAbility::EHBA_Dodge)
     {
+        const FGameplayEffectSpecHandle Immunity = AbilitySystem->MakeOutgoingSpec(UHBGE_DodgeImmunity::StaticClass(),
+            1.0f, AbilitySystem->MakeEffectContext());
+        if (!Immunity.IsValid())
+        {
+            return false;
+        }
+        Immunity.Data->SetDuration(FMath::Min(0.15f, Spec.fDuration), true);
+        Immunity.Data->DynamicGrantedTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("State.DamageImmune.Dodge")));
         const FVector Direction = !this->DirectInput.IsNearlyZero() ? this->CameraInputToWorld(this->DirectInput) : (this->bHasAim ? this->AimDirection : this->GetActorForwardVector());
         this->CancelCommands();
+        if (!AbilitySystem->ApplyGameplayEffectSpecToSelf(*Immunity.Data).IsValid())
+        {
+            return false;
+        }
         this->DodgeDirection = Direction.GetSafeNormal2D();
         this->bDodging = true;
         this->Feedback->PlayEffect(FootPosition, 100.0f, FLinearColor(0.2f, 0.8f, 1.0f));
         this->fDodgeEndTime = this->GetWorld()->GetTimeSeconds() + Spec.fDuration;
-        this->fInvulnerableUntil = this->GetWorld()->GetTimeSeconds() + FMath::Min(0.15f, Spec.fDuration);
         this->fSavedWalkSpeed = this->GetCharacterMovement()->MaxWalkSpeed;
         this->GetCharacterMovement()->MaxWalkSpeed = FMath::Min(1600.0f, Spec.fRange / Spec.fDuration);
         this->GetCharacterMovement()->Velocity = this->DodgeDirection * this->GetCharacterMovement()->MaxWalkSpeed;
@@ -656,8 +667,10 @@ bool AHBPlayerCharacter::ExecuteAbility(EHBAbility Ability, const FHBAbilitySpec
         {
             return false;
         }
-        this->Feedback->PlayEffect(Target->GetActorLocation() - FVector(0.0f, 0.0f, Target->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()), 80.0f, FLinearColor(0.4f, 0.65f, 1.0f));
-        UGameplayStatics::ApplyDamage(Target, FMath::Max(0.0f, Spec.fPower), this->GetController(), this, UDamageType::StaticClass());
+        FGameplayCueParameters Cue;
+        Cue.Location = Target->GetActorLocation();
+        HBApplyDamageEffect(this, Target, Spec.fPower);
+        AbilitySystem->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Bolt")), Cue);
         return true;
     }
     return false;
@@ -667,21 +680,29 @@ void AHBPlayerCharacter::SetBuildMode(bool bEnabled)
 {
     this->CancelCommands();
     this->bBuildMode = bEnabled;
+    this->Loadout->RefreshManaRegeneration();
 }
 
-void AHBPlayerCharacter::ResetForPhase(const FVector& Position)
+void AHBPlayerCharacter::ResetCombatState()
 {
-    this->SetBuildMode(false);
+    this->CancelCommands();
     this->RestoreHealth();
     this->Loadout->ResetResources();
     const FGameplayTag GuardTag = FGameplayTag::RequestGameplayTag(TEXT("State.Guarding"));
     AbilitySystem->RemoveActiveEffects(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(FGameplayTagContainer(GuardTag)));
+}
+
+void AHBPlayerCharacter::ResetForPhase(const FVector& Position)
+{
+    this->bBuildMode = false;
+    this->ResetCombatState();
     this->SetActorLocation(Position, false, nullptr, ETeleportType::TeleportPhysics);
 }
 
 void AHBPlayerCharacter::OnDeath()
 {
     this->CancelCommands();
+    this->Loadout->RefreshManaRegeneration();
     AHBGameMode* Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
     if (Mode)
     {
@@ -689,10 +710,17 @@ void AHBPlayerCharacter::OnDeath()
     }
 }
 
+void AHBPlayerCharacter::PossessedBy(AController* NewController)
+{
+    Super::PossessedBy(NewController);
+    this->Loadout->RefreshManaRegeneration();
+}
+
 void AHBPlayerCharacter::UnPossessed()
 {
     this->CancelCommands();
     Super::UnPossessed();
+    this->Loadout->RefreshManaRegeneration();
 }
 
 void AHBPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -734,23 +762,11 @@ void AHBPlayerCharacter::EndDodge()
     if (this->bDodging)
     {
         this->bDodging = false;
-        this->fInvulnerableUntil = 0.0f;
+        const FGameplayTag DodgeTag = FGameplayTag::RequestGameplayTag(TEXT("State.DamageImmune.Dodge"));
+        AbilitySystem->RemoveActiveEffects(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(FGameplayTagContainer(DodgeTag)));
         this->GetCharacterMovement()->MaxWalkSpeed = this->fSavedWalkSpeed;
         this->GetCharacterMovement()->StopMovementImmediately();
     }
-}
-
-float AHBPlayerCharacter::TakeDamage(float fDamage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
-{
-    const float fNow = this->GetWorld()->GetTimeSeconds();
-    if (this->bDodging && fNow < this->fInvulnerableUntil)
-    {
-        UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Damage avoided: dodge immunity window"));
-        return 0.0f;
-    }
-    const float fMultiplier = 1.0f - FMath::Clamp(Attributes->GetGuardReduction(), 0.0f, 0.95f);
-    // Taking a non-lethal hit never cancels a montage or its pending command.
-    return Super::TakeDamage(fDamage * fMultiplier, DamageEvent, EventInstigator, DamageCauser);
 }
 
 bool AHBPlayerCharacter::HasHitLine(const FVector& Point, const AActor* Target) const
@@ -772,6 +788,7 @@ void AHBPlayerCharacter::OnAttackTimeout()
 void AHBPlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
+    this->Loadout->RefreshManaRegeneration();
     if (HasAuthority() && AbilitySystem)
     {
         for (int32 Index = 0; Index < HBRuleCore::iAbilityCount; ++Index)

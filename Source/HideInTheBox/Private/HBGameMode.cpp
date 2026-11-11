@@ -1,5 +1,6 @@
 #include "HBGameMode.h"
 #include "HBDebugSubsystem.h"
+#include "HBEffects.h"
 #include "HBPlayerCharacter.h"
 #include "HBPlayerController.h"
 #include "HBEnemyCharacter.h"
@@ -43,9 +44,17 @@ void AHBGameMode::StartPlay()
 
 void AHBGameMode::ResetGASDemo()
 {
-    if (!this->bGASDemo) { return; }
     AHBPlayerCharacter* Player = this->GetPlayer();
     if (!Player) { return; }
+    if (!this->bGASDemo)
+    {
+        if (Player->IsAlive() && this->Phase != EHBPhase::EHBP_GameOver)
+        {
+            Player->ResetCombatState();
+            UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Arena GAS reset: HP/MP full, cooldowns cleared"));
+        }
+        return;
+    }
     this->ClearEnemies();
     this->Transition(EHBPhase::EHBP_Dungeon);
     AHBPlayerController* Controller = Cast<AHBPlayerController>(Player->GetController());
@@ -68,14 +77,14 @@ void AHBGameMode::ResetGASDemo()
 void AHBGameMode::DamageGASDemoPlayer()
 {
     AHBPlayerCharacter* Player = this->GetPlayer();
-    if (!this->bGASDemo || !Player || !Player->IsAlive()) { return; }
-    UGameplayStatics::ApplyDamage(Player, FMath::Min(60.0f, Player->GetHealth() - 1.0f), nullptr, this, nullptr);
+    if (this->Phase == EHBPhase::EHBP_GameOver || !Player || !Player->IsAlive()) { return; }
+    HBApplyDamageEffect(this, Player, FMath::Min(60.0f, Player->GetHealth() - 1.0f));
 }
 
 void AHBGameMode::RefillGASDemoMana()
 {
     AHBPlayerCharacter* Player = this->GetPlayer();
-    if (!this->bGASDemo || !Player || !Player->IsAlive()) { return; }
+    if (this->Phase == EHBPhase::EHBP_GameOver || !Player || !Player->IsAlive()) { return; }
     Player->ApplyGASManaDelta(Player->GetGASMaxMana() - Player->GetGASMana());
 }
 

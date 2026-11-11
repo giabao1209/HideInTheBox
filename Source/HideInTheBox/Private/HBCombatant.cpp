@@ -3,7 +3,6 @@
 #include "HBEffects.h"
 #include "AbilitySystemComponent.h"
 #include "GameplayEffect.h"
-#include "HBDebugSubsystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -101,16 +100,7 @@ float AHBCombatant::ApplyHealthDelta(float Delta)
 
 float AHBCombatant::TakeDamage(float Damage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-    if (!IsAlive() || !FMath::IsFinite(Damage) || Damage <= 0.0f || !HasAuthority())
-    {
-        return 0.0f;
-    }
-    const float Applied = FMath::Min(Damage, GetHealth());
-    UHBDebugSubsystem::Record(this, TEXT("Combat"),
-        FString::Printf(TEXT("GAS %s -> %s damage=%.1f HP=%.1f"),
-            *GetNameSafe(DamageCauser), *GetName(), Applied, FMath::Max(0.0f, GetHealth() - Applied)));
-    ApplyHealthDelta(-Applied);
-    return Applied;
+    return HBApplyDamageEffect(DamageCauser, this, Damage);
 }
 
 void AHBCombatant::RestoreHealth()

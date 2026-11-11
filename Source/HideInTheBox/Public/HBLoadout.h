@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Engine/DataAsset.h"
+#include "ActiveGameplayEffectHandle.h"
 #include "HBRuleCore.h"
 #include "HBLoadout.generated.h"
 class AHBEnemyCharacter;
@@ -69,7 +70,7 @@ public:
     UFUNCTION(BlueprintPure, Category="Resources") float GetMana() const;
     float GetManaFraction() const;
     void AppendDebugChecks(TArray<FString>& Checks) const;
-    void Regenerate(float fDeltaSeconds);
+    void RefreshManaRegeneration();
     void ResetResources();
     const FHBAbilitySpec* FindSpec(EHBAbility Ability) const;
     TSubclassOf<UHBGameplayAbility> GetAbilityClass(EHBAbility Ability) const;
@@ -81,5 +82,5 @@ private:
     EHBActionResult Resolve(int32 iSlot, EHBActionResult Result);
     UPROPERTY(Transient) TArray<EHBAbility> Slots;
     bool bUsedDefaultDefinition = false;
-    float RegenAccumulator = 0.0f;
+    FActiveGameplayEffectHandle ManaRegenerationHandle;
 };

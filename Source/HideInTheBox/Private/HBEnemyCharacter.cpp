@@ -9,8 +9,7 @@
 #include "HBPlayerCharacter.h"
 #include "HBStructure.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "GameFramework/DamageType.h"
-#include "Kismet/GameplayStatics.h"
+#include "HBEffects.h"
 #include "Engine/World.h"
 
 AHBEnemyCharacter::AHBEnemyCharacter()
@@ -131,7 +130,7 @@ void AHBEnemyCharacter::DeliverAnimationHit(UAnimSequenceBase* Animation)
 
 void AHBEnemyCharacter::ApplyMeleeDamage(AActor* Target)
 {
-    UGameplayStatics::ApplyDamage(Target, 8.0f, GetController(), this, UDamageType::StaticClass());
+    HBApplyDamageEffect(this, Target, 8.0f);
 }
 
 void AHBEnemyCharacter::OnDeath()

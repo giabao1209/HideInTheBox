@@ -11,6 +11,7 @@ class UHBFeedbackComponent;
 class UAnimMontage;
 class UAnimSequenceBase;
 class AHBEnemyCharacter;
+struct FGameplayTag;
 
 UCLASS()
 class HIDEINTHEBOX_API AHBPlayerCharacter : public AHBCombatant
@@ -19,6 +20,7 @@ class HIDEINTHEBOX_API AHBPlayerCharacter : public AHBCombatant
 public:
     AHBPlayerCharacter();
     virtual void Tick(float fDeltaSeconds) override;
+    virtual void PossessedBy(AController* NewController) override;
     virtual void UnPossessed() override;
     void AppendDebugChecks(TArray<FString>& Checks) const;
     /** Synchronous single-player GAS activation; existing input/slot system is preserved. */
@@ -35,6 +37,7 @@ public:
     void ApplyGASManaDelta(float Delta);
     void ApplyGASCooldown(EHBAbility Ability, float Duration);
     float GetGASCooldown(EHBAbility Ability) const;
+    float GetGASEffectTimeRemaining(FGameplayTag Tag) const;
     void ResetGASMana(float MaxMana);
     void ClearGASCooldowns();
     void RequestMove(const FVector& Position);
@@ -44,7 +47,6 @@ public:
     void SetHover(AHBEnemyCharacter* Target);
     void CancelCommands();
     bool ExecuteAbility(EHBAbility Ability, const FHBAbilitySpec& Spec, AHBEnemyCharacter* Target, const FVector& AimPoint, bool bInPlace);
-    virtual float TakeDamage(float fDamage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
     FVector CameraInputToWorld(const FVector2D& Input) const;
     void SetAimWorldDirection(const FVector& Direction);
     bool IsDodging() const { return this->bDodging; }
@@ -55,6 +57,7 @@ public:
     FVector GetAimDirection() const { return this->bHasAim ? this->AimDirection : this->GetActorForwardVector(); }
     UFUNCTION(BlueprintCallable, Category="Camera") void SetCameraYaw(float fYaw);
     void SetBuildMode(bool bEnabled);
+    void ResetCombatState();
     void ResetForPhase(const FVector& Position);
     /** Called by the attack notify; guarded against duplicates and late delivery. */
     void DeliverAttackHit();
@@ -123,7 +126,6 @@ private:
     FVector AimDirection = FVector::ForwardVector;
     FVector DodgeDirection = FVector::ForwardVector;
     float fDodgeEndTime = 0.0f;
-    float fInvulnerableUntil = 0.0f;
     float fSavedWalkSpeed = 450.0f;
     FString AttackPlayback = TEXT("Idle");
     FString LastAttackOutcome = TEXT("None");

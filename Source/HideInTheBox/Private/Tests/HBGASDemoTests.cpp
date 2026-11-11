@@ -1,9 +1,11 @@
 #include "HBGameMode.h"
 #include "HBPlayerCharacter.h"
 #include "HBEnemyCharacter.h"
+#include "HBEffects.h"
 #include "HBGameplayAbility.h"
 #include "HBPlayerController.h"
 #include "HBPracticeWidget.h"
+#include "HBStructure.h"
 #include "HBDebugSubsystem.h"
 #include "AbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
@@ -19,12 +21,20 @@
 #include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
+#include "InputKeyEventArgs.h"
 #include "Misc/AutomationTest.h"
+#include "Tests/AutomationCommon.h"
 #include "Widgets/CommonActivatableWidgetContainer.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
 {
+    void SendInput(AHBPlayerController& Controller, const FKey& Key, EInputEvent Event)
+    {
+        const FInputDeviceId Device = IPlatformInputDeviceMapper::Get().GetDefaultInputDevice();
+        Controller.InputKey(FInputKeyEventArgs(nullptr, Device, Key, Event, FPlatformTime::Cycles64()));
+    }
+
     bool ClickPracticeButton(UUserWidget& Panel, FName Name)
     {
         UCommonButtonBase* Button = Cast<UCommonButtonBase>(Panel.GetWidgetFromName(Name));
@@ -44,6 +54,71 @@ namespace
     }
 }
 
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHBStartMappedInput, TWeakObjectPtr<AHBPlayerController>, Controller, FKey, GuardKey);
+
+bool FHBStartMappedInput::Update()
+{
+    if (Controller.IsValid())
+    {
+        SendInput(*Controller, EKeys::W, IE_Pressed);
+        SendInput(*Controller, EKeys::F7, IE_Pressed);
+        SendInput(*Controller, GuardKey, IE_Pressed);
+    }
+    return true;
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_FIVE_PARAMETER(FHBVerifyMappedInput, FAutomationTestBase*, Test,
+    TWeakObjectPtr<AHBPlayerController>, Controller, FVector, Start, FKey, GuardKey, FKey, OriginalKey);
+
+bool FHBVerifyMappedInput::Update()
+{
+    AHBPlayerCharacter* Player = Controller.IsValid() ? Cast<AHBPlayerCharacter>(Controller->GetPawn()) : nullptr;
+    if (!Test->TestNotNull(TEXT("Player remains possessed"), Player)) { return true; }
+    SendInput(*Controller, EKeys::W, IE_Released);
+    SendInput(*Controller, EKeys::F7, IE_Released);
+    SendInput(*Controller, GuardKey, IE_Released);
+    Test->TestTrue(TEXT("The IMC keyboard movement action moves the pawn"),
+        FVector::DistSquaredXY(Start, Player->GetActorLocation()) > 1.0f);
+    Test->TestTrue(TEXT("The IMC practice action damages the player"), Player->GetHealth() < Player->GetMaxHealth());
+    Test->TestTrue(TEXT("The remapped Guard key starts its GAS cooldown"), Player->GetGASCooldown(EHBAbility::EHBA_Guard) > 0.0f);
+    Test->TestTrue(TEXT("Original key restored without writing a save"), Controller->RebindSlotKey(3, OriginalKey, false));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHBInputMappingTest, "HideInTheBox.Input.MappingContexts",
+    EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FHBInputMappingTest::RunTest(const FString& Parameters)
+{
+    AHBGameMode* Mode = nullptr;
+    for (const FWorldContext& Context : GEngine->GetWorldContexts())
+    {
+        if (Context.World() && Context.World()->IsGameWorld())
+        {
+            Mode = Context.World()->GetAuthGameMode<AHBGameMode>();
+            if (Mode) { break; }
+        }
+    }
+    if (!TestNotNull(TEXT("Run in DemoArena or GASWidgetArena with -game"), Mode)) { return false; }
+    Mode->ResetGASDemo();
+    AHBPlayerCharacter* Player = Mode->GetPlayer();
+    AHBPlayerController* Controller = Player ? Cast<AHBPlayerController>(Player->GetController()) : nullptr;
+    if (!TestNotNull(TEXT("Arena controller"), Controller)) { return false; }
+    const FKey OriginalKey = Controller->GetSlotKey(3, false);
+    TestFalse(TEXT("A key used by the gameplay IMC cannot be assigned to a slot"), Controller->RebindSlotKey(3, EKeys::W, false));
+    FKey GuardKey = EKeys::F9;
+    if (!Controller->RebindSlotKey(3, GuardKey, false))
+    {
+        GuardKey = EKeys::F10;
+        if (!TestTrue(TEXT("Guard slot accepts an unused key"), Controller->RebindSlotKey(3, GuardKey, false))) { return false; }
+    }
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.1f));
+    ADD_LATENT_AUTOMATION_COMMAND(FHBStartMappedInput(Controller, GuardKey));
+    ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+    ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyMappedInput(this, Controller, Player->GetActorLocation(), GuardKey, OriginalKey));
+    return true;
+}
+
 DEFINE_LATENT_AUTOMATION_COMMAND_FIVE_PARAMETER(FHBVerifyMontageHit, FAutomationTestBase*, Test,
     TWeakObjectPtr<AHBPlayerCharacter>, Player, TWeakObjectPtr<AHBEnemyCharacter>, Target, float, ExpectedHealth, double, Deadline);
 
@@ -60,6 +135,8 @@ bool FHBVerifyMontageHit::Update()
     Test->TestTrue(TEXT("Montage task completed the swing"), Player.IsValid() &&
         !Player->IsAttacking() && Player->GetLastAttackOutcome() == TEXT("Completed"));
     Test->TestFalse(TEXT("Guard effect expires without reset"), bGuardActive);
+    Test->TestTrue(TEXT("Periodic GAS effect restores mana after Guard"), Player.IsValid() &&
+        Player->GetGASMana() > Player->GetGASMaxMana() - Player->GetLoadout()->GetSlotSpec(3).fManaCost);
     return true;
 }
 
@@ -119,6 +196,12 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     }
     this->TestEqual(TEXT("Pulse is granted from the Data Asset"), Loadout->GetAbilityClass(EHBAbility::EHBA_Pulse)->GetName(), FString(TEXT("GA_GASDemo_Pulse_C")));
     this->TestEqual(TEXT("Six granted abilities"), ASC->GetActivatableAbilities().Num(), 6);
+    const FGameplayTag RegenTag = FGameplayTag::RequestGameplayTag(TEXT("State.ManaRegenerating"));
+    this->TestTrue(TEXT("Mana regeneration is an active Gameplay Effect"), ASC->HasMatchingGameplayTag(RegenTag));
+    Player->SetBuildMode(true);
+    this->TestFalse(TEXT("Build mode suspends mana regeneration"), ASC->HasMatchingGameplayTag(RegenTag));
+    Player->SetBuildMode(false);
+    this->TestTrue(TEXT("Leaving build mode restores mana regeneration"), ASC->HasMatchingGameplayTag(RegenTag));
     this->TestEqual(TEXT("Three practice targets"), Mode->GetEnemies().Num(), 3);
     if (Mode->GetEnemies().Num() != 3) { return false; }
     AHBEnemyCharacter* Target = Mode->GetEnemies()[0].Get();
@@ -127,7 +210,8 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestTrue(TEXT("Target mesh and idle animation are assigned"),
         Target->GetMesh()->GetSkeletalMeshAsset() && Target->GetMesh()->GetAnimInstance());
     UWidgetComponent* TargetHealthComponent = Target->FindComponentByClass<UWidgetComponent>();
-    this->TestTrue(TEXT("Target uses its Widget Blueprint"), TargetHealthComponent && Cast<UHBGASTargetWidget>(TargetHealthComponent->GetUserWidgetObject()));
+    UHBGASTargetWidget* TargetWidget = TargetHealthComponent ? Cast<UHBGASTargetWidget>(TargetHealthComponent->GetUserWidgetObject()) : nullptr;
+    this->TestNotNull(TEXT("Target uses its CommonUI Widget Blueprint"), TargetWidget);
     const FVector Aim = Target->GetActorLocation();
     const float TargetHealth = Target->GetHealth();
     bool bPulseAppliedDamageEffect = false;
@@ -144,6 +228,9 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestTrue(TEXT("Pulse Gameplay Cue executes the shockwave"), FString::Join(PulseEvents, TEXT("\n")).Contains(TEXT("GameplayCue.GASDemo.Pulse executed")));
     this->TestEqual(TEXT("Pulse spends 20 mana"), Player->GetGASMana(), 80.0f);
     this->TestEqual(TEXT("Pulse GE deals 45 damage"), Target->GetHealth(), TargetHealth - 45.0f);
+    const UProgressBar* TargetBar = TargetWidget ? Cast<UProgressBar>(TargetWidget->GetWidgetFromName(TEXT("TargetHealthBar"))) : nullptr;
+    this->TestTrue(TEXT("Health bar updates immediately from the attribute delegate"), TargetBar &&
+        FMath::IsNearlyEqual(TargetBar->GetPercent(), Target->GetHealth() / Target->GetMaxHealth()));
     this->TestTrue(TEXT("Pulse tag granted"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Pulse)));
     const TArray<FActiveGameplayEffectHandle> Cooldowns = ASC->GetActiveEffects(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(
         FGameplayTagContainer(HBGetCooldownTag(EHBAbility::EHBA_Pulse))));
@@ -162,6 +249,16 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestTrue(TEXT("Reassigned slot displays the Pulse icon"), PulseIcon && ReassignedIcon &&
         ReassignedIcon->GetBrush().GetResourceObject() == PulseIcon);
     Loadout->AssignAbilityToSlot(2, EHBAbility::EHBA_Dodge);
+
+    this->TestEqual(TEXT("Bolt rejects a cast without an enemy"), Loadout->TryActivateSlot(5, nullptr, Aim, false), EHBActionResult::EHBAR_InvalidTarget);
+    this->TestEqual(TEXT("A failed Bolt costs no mana"), Player->GetGASMana(), 80.0f);
+    this->TestEqual(TEXT("Bolt hits the selected enemy"), Loadout->TryActivateSlot(5, Target, Aim, false), EHBActionResult::EHBAR_Accepted);
+    this->TestEqual(TEXT("Bolt deals 25 damage"), Target->GetHealth(), TargetHealth - 45.0f - 25.0f);
+    this->TestEqual(TEXT("Bolt spends 10 mana"), Player->GetGASMana(), 70.0f);
+    this->TestTrue(TEXT("Bolt starts its cooldown"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Bolt)));
+    TArray<FString> BoltEvents;
+    Player->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->GetRecent(BoltEvents, 12);
+    this->TestTrue(TEXT("Bolt dispatches its lightning Gameplay Cue"), FString::Join(BoltEvents, TEXT("\n")).Contains(TEXT("GameplayCue.GASDemo.Bolt executed")));
 
     Mode->ResetGASDemo();
     this->TestEqual(TEXT("Reset restores mana"), Player->GetGASMana(), 100.0f);
@@ -203,8 +300,15 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
         PulseIconAtZeroMana && BasicIconAtZeroMana && PulseIconAtZeroMana->GetRenderOpacity() < BasicIconAtZeroMana->GetRenderOpacity());
     Mode->ResetGASDemo();
     this->TestEqual(TEXT("Dodge accepted"), Loadout->TryActivateSlot(2, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    const FGameplayTag DodgeTag = FGameplayTag::RequestGameplayTag(TEXT("State.DamageImmune.Dodge"));
+    this->TestTrue(TEXT("Dodge grants an immunity tag"), ASC->HasMatchingGameplayTag(DodgeTag));
+    const float HealthBeforeDodgeHit = Player->GetHealth();
+    Controller->HBGASDamage();
+    this->TestEqual(TEXT("Dodge blocks the test hit through the damage execution"), Player->GetHealth(), HealthBeforeDodgeHit);
+    this->TestEqual(TEXT("Dodge blocks direct damage effects too"), HBApplyDamageEffect(Mode->GetEnemies()[0].Get(), Player, 60.0f), 0.0f);
     Mode->ResetGASDemo();
     this->TestFalse(TEXT("Reset cancels dodge"), Player->IsDodging());
+    this->TestFalse(TEXT("Reset removes Dodge immunity"), ASC->HasMatchingGameplayTag(DodgeTag));
     Target = Mode->GetEnemies()[0].Get();
     Player->SetActorLocation(Target->GetActorLocation() - FVector(120.0f, 0.0f, 0.0f));
     this->TestEqual(TEXT("Basic attack accepted"), Loadout->TryActivateSlot(0, Target, Target->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
@@ -222,18 +326,6 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestEqual(TEXT("Enter keeps practice phase"), Mode->GetPhase(), EHBPhase::EHBP_Dungeon);
     Mode->ResetGASDemo();
     this->TestEqual(TEXT("Reset respawns defeated targets"), Mode->GetEnemies().Num(), 3);
-    AHBGameMode* NormalMode = Player->GetWorld()->SpawnActor<AHBGameMode>();
-    if (this->TestNotNull(TEXT("Normal mode fixture"), NormalMode))
-    {
-        const float Health = Player->GetHealth();
-        Player->ApplyGASManaDelta(-20.0f);
-        NormalMode->ResetGASDemo();
-        NormalMode->DamageGASDemoPlayer();
-        NormalMode->RefillGASDemoMana();
-        this->TestEqual(TEXT("Practice helpers leave normal mode health alone"), Player->GetHealth(), Health);
-        this->TestEqual(TEXT("Practice helpers leave normal mode mana alone"), Player->GetGASMana(), 80.0f);
-        NormalMode->Destroy();
-    }
     Mode->ResetGASDemo();
     Target = Mode->GetEnemies().IsEmpty() ? nullptr : Mode->GetEnemies()[0].Get();
     if (!this->TestNotNull(TEXT("Montage test target spawned"), Target)) { return false; }
@@ -375,7 +467,7 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
         return false;
     }
     AHBPlayerCharacter* Player = Mode->GetPlayer();
-    const AHBPlayerController* Controller = Player ? Cast<AHBPlayerController>(Player->GetController()) : nullptr;
+    AHBPlayerController* Controller = Player ? Cast<AHBPlayerController>(Player->GetController()) : nullptr;
     UUserWidget* HUD = Controller ? Controller->GetPracticeHUD() : nullptr;
     if (!this->TestNotNull(TEXT("The full-game Widget Blueprint is mounted"), HUD)) { return false; }
     const UCommonActivatableWidget* CommonHUD = Cast<UCommonActivatableWidget>(HUD);
@@ -385,6 +477,12 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     this->TestEqual(TEXT("Arena grants six abilities"), Player->GetAbilitySystemComponent()->GetActivatableAbilities().Num(), 6);
     this->TestEqual(TEXT("Gate starts at full HP"), Mode->GetGateHealth(), 350.0f);
     this->TestEqual(TEXT("Anima starts at full HP"), Mode->GetCoreHealth(), 250.0f);
+    AHBStructure* Gate = Mode->GetDefenseTarget();
+    if (!this->TestNotNull(TEXT("Gate uses the shared Ability System"), Gate ? Gate->GetAbilitySystemComponent() : nullptr)) { return false; }
+    this->TestEqual(TEXT("Gate receives the same damage effect as a combatant"), HBApplyDamageEffect(Player, Gate, 8.0f), 8.0f);
+    this->TestEqual(TEXT("Gate loses health through its AttributeSet"), Mode->GetGateHealth(), 342.0f);
+    Gate->Repair();
+    this->TestEqual(TEXT("Gate repair restores its GAS health"), Mode->GetGateHealth(), 350.0f);
     Mode->AdvancePhase();
     this->TestEqual(TEXT("Advance enters Dungeon"), Mode->GetPhase(), EHBPhase::EHBP_Dungeon);
     if (!this->TestEqual(TEXT("Dungeon spawns six enemies"), Mode->GetEnemies().Num(), 6)) { return false; }
@@ -393,8 +491,34 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     GameplayPanel->Refresh();
     const UTextBlock* Phase = Cast<UTextBlock>(GameplayPanel->GetWidgetFromName(TEXT("ArenaPhase")));
     this->TestTrue(TEXT("The HUD displays the current phase"), Phase && Phase->GetText().ToString().Contains(TEXT("DUNGEON")));
+    const UTextBlock* Instructions = Cast<UTextBlock>(GameplayPanel->GetWidgetFromName(TEXT("Instructions")));
+    this->TestTrue(TEXT("The HUD shows the GAS test shortcuts"), Instructions && Instructions->GetText().ToString().Contains(TEXT("F7 HIT")));
     AHBEnemyCharacter* Enemy = Mode->GetEnemies()[0].Get();
     if (!this->TestNotNull(TEXT("Dungeon enemy"), Enemy)) { return false; }
+    Controller->HBGASDamage();
+    this->TestEqual(TEXT("DemoArena test hit deals 60 HP"), Player->GetHealth(), Player->GetMaxHealth() - 60.0f);
+    const FVector ResetLocation = Player->GetActorLocation();
+    Controller->HBGASReset();
+    this->TestEqual(TEXT("DemoArena reset restores HP"), Player->GetHealth(), Player->GetMaxHealth());
+    this->TestEqual(TEXT("DemoArena reset preserves the player's location"), Player->GetActorLocation(), ResetLocation);
+    this->TestEqual(TEXT("DemoArena reset preserves the Dungeon phase"), Mode->GetPhase(), EHBPhase::EHBP_Dungeon);
+    if (!this->TestTrue(TEXT("DemoArena reset leaves the active enemies in place"),
+        Mode->GetEnemies().Num() == 6 && Mode->GetEnemies()[0].Get() == Enemy)) { return false; }
+    this->TestEqual(TEXT("Guard casts in DemoArena"), Player->GetLoadout()->TryActivateSlot(3, nullptr, ResetLocation, false), EHBActionResult::EHBAR_Accepted);
+    GameplayPanel->Refresh();
+    const UTextBlock* GuardSlot = Cast<UTextBlock>(GameplayPanel->GetWidgetFromName(TEXT("Ability3")));
+    this->TestTrue(TEXT("The Guard slot shows the active buff before its cooldown"), GuardSlot && GuardSlot->GetText().ToString().Contains(TEXT("Active")));
+    Controller->HBGASDamage();
+    this->TestEqual(TEXT("Guard reduces the DemoArena test hit to 30 HP"), Player->GetHealth(), Player->GetMaxHealth() - 30.0f);
+    Controller->HBGASRefill();
+    this->TestEqual(TEXT("DemoArena refill restores MP"), Player->GetGASMana(), Player->GetGASMaxMana());
+    this->TestTrue(TEXT("Refill preserves the Guard cooldown"), Player->GetGASCooldown(EHBAbility::EHBA_Guard) > 0.0f);
+    Controller->HBGASReset();
+    this->TestEqual(TEXT("DemoArena reset clears the Guard cooldown"), Player->GetGASCooldown(EHBAbility::EHBA_Guard), 0.0f);
+    this->TestFalse(TEXT("DemoArena reset removes Guard"), Player->GetAbilitySystemComponent()->HasMatchingGameplayTag(
+        FGameplayTag::RequestGameplayTag(TEXT("State.Guarding"))));
+    GameplayPanel->Refresh();
+    this->TestTrue(TEXT("The Guard slot shows Ready after reset"), GuardSlot && GuardSlot->GetText().ToString().Contains(TEXT("Ready")));
     this->TestEqual(TEXT("Dungeon spawns the combat enemy Blueprint"), Enemy->GetClass()->GetName(), FString(TEXT("BP_DemoArenaEnemy_C")));
     this->TestTrue(TEXT("Dungeon enemy AI is enabled"), Enemy->IsActorTickEnabled());
     const FVector MeshFacing = Enemy->GetMesh()->GetComponentQuat().RotateVector(FVector::RightVector);

@@ -1,16 +1,17 @@
 #include "HBStructure.h"
-#include "HBDebugSubsystem.h"
+#include "HBAttributes.h"
+#include "HBEffects.h"
 #include "HBGameMode.h"
 #include "HBEnemyCharacter.h"
 #include "Components/StaticMeshComponent.h"
-#include "GameFramework/DamageType.h"
-#include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
 AHBStructure::AHBStructure()
 {
     this->PrimaryActorTick.bCanEverTick = false;
+    this->AbilitySystem = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystem"));
+    this->Attributes = CreateDefaultSubobject<UHBAttributes>(TEXT("Attributes"));
     this->Mesh = this->CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StructureMesh"));
     this->SetRootComponent(this->Mesh);
     // Arena structures are objectives, not the GDD weighted navigation obstacles.
@@ -21,15 +22,27 @@ void AHBStructure::BeginPlay()
 {
     Super::BeginPlay();
     this->Mode = this->GetWorld()->GetAuthGameMode<AHBGameMode>();
+    this->AbilitySystem->InitAbilityActorInfo(this, this);
+    this->AbilitySystem->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetHealthAttribute())
+        .AddUObject(this, &AHBStructure::OnHealthChanged);
+    this->Configure(this->Kind);
 }
 
 void AHBStructure::Configure(EHBStructure NewKind)
 {
+    if (!HasAuthority())
+    {
+        return;
+    }
     this->GetWorldTimerManager().ClearTimer(this->FireTimer);
     this->Kind = NewKind;
-    this->fMaxHealth = this->Kind == EHBStructure::EHBS_Anima ? 250.0f : 350.0f;
-    this->fHealth = this->fMaxHealth;
-    if (this->Kind == EHBStructure::EHBS_Turret)
+    const bool bTurret = this->Kind == EHBStructure::EHBS_Turret;
+    const FGameplayTag ImmuneTag = FGameplayTag::RequestGameplayTag(TEXT("State.DamageImmune"));
+    this->AbilitySystem->SetLooseGameplayTagCount(ImmuneTag, bTurret ? 1 : 0);
+    const float MaxHealth = this->Kind == EHBStructure::EHBS_Anima ? 250.0f : 350.0f;
+    this->AbilitySystem->SetNumericAttributeBase(UHBAttributes::GetMaxHealthAttribute(), MaxHealth);
+    this->AbilitySystem->SetNumericAttributeBase(UHBAttributes::GetHealthAttribute(), MaxHealth);
+    if (bTurret)
     {
         this->GetWorldTimerManager().SetTimer(this->FireTimer, this, &AHBStructure::Fire, 0.7f, true);
     }
@@ -37,14 +50,27 @@ void AHBStructure::Configure(EHBStructure NewKind)
 
 float AHBStructure::TakeDamage(float fDamage, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-    if (this->Kind == EHBStructure::EHBS_Turret || !this->IsAlive() || fDamage <= 0.0f)
-    {
-        return 0.0f;
-    }
-    const float fApplied = FMath::Min(fDamage, this->fHealth);
-    this->fHealth -= fApplied;
-    UHBDebugSubsystem::Record(this, TEXT("Combat"), FString::Printf(TEXT("Structure %s damage=%.1f HP=%.1f"), *this->GetName(), fApplied, this->fHealth));
-    if (!this->IsAlive())
+    return HBApplyDamageEffect(DamageCauser, this, fDamage);
+}
+
+UAbilitySystemComponent* AHBStructure::GetAbilitySystemComponent() const
+{
+    return this->AbilitySystem;
+}
+
+float AHBStructure::GetHealth() const
+{
+    return this->Attributes->GetHealth();
+}
+
+bool AHBStructure::NeedsRepair() const
+{
+    return GetHealth() < this->Attributes->GetMaxHealth();
+}
+
+void AHBStructure::OnHealthChanged(const FOnAttributeChangeData& Data)
+{
+    if (HasAuthority() && Data.OldValue > 0.0f && Data.NewValue <= 0.0f)
     {
         this->SetActorHiddenInGame(true);
         if (this->Kind == EHBStructure::EHBS_Anima && this->Mode.IsValid())
@@ -52,13 +78,15 @@ float AHBStructure::TakeDamage(float fDamage, const FDamageEvent& DamageEvent, A
             this->Mode->EndRun();
         }
     }
-    return fApplied;
 }
 
 void AHBStructure::Repair()
 {
-    this->fHealth = this->fMaxHealth;
-    this->SetActorHiddenInGame(false);
+    if (HasAuthority())
+    {
+        this->AbilitySystem->SetNumericAttributeBase(UHBAttributes::GetHealthAttribute(), this->Attributes->GetMaxHealth());
+        this->SetActorHiddenInGame(false);
+    }
 }
 
 void AHBStructure::Fire()
@@ -77,7 +105,7 @@ void AHBStructure::Fire()
     }
     if (IsValid(Enemy))
     {
-        UGameplayStatics::ApplyDamage(Enemy, 22.0f, nullptr, this, UDamageType::StaticClass());
+        HBApplyDamageEffect(this, Enemy, 22.0f);
     }
 }
 
