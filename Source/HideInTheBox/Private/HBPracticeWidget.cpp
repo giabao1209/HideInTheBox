@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "HBAttributes.h"
 #include "HBGameMode.h"
+#include "HBGameplayAbility.h"
 #include "HBPlayerCharacter.h"
 #include "HBPlayerController.h"
 #include "Widgets/CommonActivatableWidgetContainer.h"
@@ -195,7 +196,11 @@ void UHBPracticeWidget::Refresh()
             Key == EKeys::RightMouseButton ? NSLOCTEXT("GASDemo", "RMB", "RMB") : Key.GetDisplayName();
         FText State = Remaining > 0.0f ? FText::FromString(FString::Printf(TEXT("%.1f s"), Remaining)) :
             (bCanAfford ? NSLOCTEXT("GASDemo", "Ready", "Ready") : NSLOCTEXT("GASDemo", "NoMana", "Low MP"));
-        if (Ability == EHBAbility::EHBA_Guard && GuardRemaining > 0.0f)
+        if (Ability == EHBAbility::EHBA_Pulse && Player->GetAbilitySystemComponent()->HasMatchingGameplayTag(HBGetPulseCastingTag()))
+        {
+            State = NSLOCTEXT("GASDemo", "PulseCharging", "Charging");
+        }
+        else if (Ability == EHBAbility::EHBA_Guard && GuardRemaining > 0.0f)
         {
             const FText Seconds = FText::FromString(FString::Printf(TEXT("%.1f"), FMath::Max(0.1f, GuardRemaining)));
             State = FText::Format(NSLOCTEXT("GASDemo", "GuardActive", "Active {0}s"), Seconds);
@@ -225,6 +230,7 @@ void UHBGASTargetWidget::SetCombatant(AHBCombatant* InCombatant)
             .AddUObject(this, &UHBGASTargetWidget::OnHealthChanged);
         ASC->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetMaxHealthAttribute())
             .AddUObject(this, &UHBGASTargetWidget::OnHealthChanged);
+        ASC->RegisterGameplayTagEvent(HBGetExposedTag()).AddUObject(this, &UHBGASTargetWidget::OnExposedChanged);
     }
     RefreshHealth();
 }
@@ -248,10 +254,16 @@ void UHBGASTargetWidget::UnbindHealthChanges()
         UAbilitySystemComponent* ASC = Target->GetAbilitySystemComponent();
         ASC->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetHealthAttribute()).RemoveAll(this);
         ASC->GetGameplayAttributeValueChangeDelegate(UHBAttributes::GetMaxHealthAttribute()).RemoveAll(this);
+        ASC->RegisterGameplayTagEvent(HBGetExposedTag()).RemoveAll(this);
     }
 }
 
 void UHBGASTargetWidget::OnHealthChanged(const FOnAttributeChangeData& Data)
+{
+    RefreshHealth();
+}
+
+void UHBGASTargetWidget::OnExposedChanged(const FGameplayTag Tag, int32 NewCount)
 {
     RefreshHealth();
 }
@@ -262,6 +274,8 @@ void UHBGASTargetWidget::RefreshHealth()
     if (Target && TargetHealthBar && TargetHealthValue)
     {
         TargetHealthBar->SetPercent(Target->GetHealth() / FMath::Max(1.0f, Target->GetMaxHealth()));
-        TargetHealthValue->SetText(FText::AsNumber(FMath::RoundToInt(Target->GetHealth())));
+        const FText Health = FText::AsNumber(FMath::RoundToInt(Target->GetHealth()));
+        const bool bExposed = Target->GetAbilitySystemComponent()->HasMatchingGameplayTag(HBGetExposedTag());
+        TargetHealthValue->SetText(bExposed ? FText::Format(NSLOCTEXT("GASDemo", "TargetExposed", "{0}  EXPOSED"), Health) : Health);
     }
 }

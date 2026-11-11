@@ -61,8 +61,11 @@ void UHBExec_Damage::Execute_Implementation(const FGameplayEffectCustomExecution
         return;
     }
     const float Reduction = Target->GetNumericAttribute(UHBAttributes::GetGuardReductionAttribute());
+    const FGameplayTag ExposedTag = FGameplayTag::RequestGameplayTag(TEXT("State.Exposed"));
+    const float Bonus = Target->HasMatchingGameplayTag(ExposedTag)
+        ? FMath::Max(0.0f, Parameters.GetOwningSpec().GetSetByCallerMagnitude(FName(TEXT("ExposedBonus")), false)) : 0.0f;
     Output.AddOutputModifier(FGameplayModifierEvaluatedData(UHBAttributes::GetHealthAttribute(),
-        EGameplayModOp::Additive, -Damage * (1.0f - FMath::Clamp(Reduction, 0.0f, 0.95f))));
+        EGameplayModOp::Additive, -(Damage + Bonus) * (1.0f - FMath::Clamp(Reduction, 0.0f, 0.95f))));
 }
 
 UHBGE_Damage::UHBGE_Damage()
@@ -79,6 +82,15 @@ UHBGE_DodgeImmunity::UHBGE_DodgeImmunity()
     DurationMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(0.15f));
 }
 
+UHBGE_Exposed::UHBGE_Exposed()
+{
+    DurationPolicy = EGameplayEffectDurationType::HasDuration;
+    DurationMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(3.0f));
+    StackingType = EGameplayEffectStackingType::AggregateByTarget;
+    StackLimitCount = 1;
+    StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::RefreshOnSuccessfulApplication;
+}
+
 UHBGE_ManaRegeneration::UHBGE_ManaRegeneration()
 {
     DurationPolicy = EGameplayEffectDurationType::Infinite;
@@ -87,7 +99,7 @@ UHBGE_ManaRegeneration::UHBGE_ManaRegeneration()
     Modifiers.Add(MakeDeltaModifier(UHBAttributes::GetManaAttribute()));
 }
 
-float HBApplyDamageEffect(AActor* Source, AActor* Target, float Damage, TSubclassOf<UGameplayEffect> EffectClass)
+float HBApplyDamageEffect(AActor* Source, AActor* Target, float Damage, TSubclassOf<UGameplayEffect> EffectClass, float ExposedBonus)
 {
     if (!IsValid(Target) || !Target->HasAuthority() || !EffectClass || !FMath::IsFinite(Damage) || Damage <= 0.0f)
     {
@@ -111,6 +123,10 @@ float HBApplyDamageEffect(AActor* Source, AActor* Target, float Damage, TSubclas
         return 0.0f;
     }
     Spec.Data->SetSetByCallerMagnitude(FName(TEXT("Magnitude")), Damage);
+    if (FMath::IsFinite(ExposedBonus) && ExposedBonus > 0.0f)
+    {
+        Spec.Data->SetSetByCallerMagnitude(FName(TEXT("ExposedBonus")), ExposedBonus);
+    }
     const FGameplayAttribute Health = UHBAttributes::GetHealthAttribute();
     const float Previous = TargetASC->GetNumericAttribute(Health);
     SpecOwner->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);

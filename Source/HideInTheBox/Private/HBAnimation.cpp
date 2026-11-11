@@ -1,6 +1,8 @@
 #include "HBAnimation.h"
 #include "HBEnemyCharacter.h"
+#include "HBGameplayAbility.h"
 #include "HBPlayerCharacter.h"
+#include "AbilitySystemBlueprintLibrary.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -37,5 +39,18 @@ void UHBAnimNotifyAttackHit::Notify(USkeletalMeshComponent* MeshComp, UAnimSeque
     else if (AHBEnemyCharacter* Enemy = Cast<AHBEnemyCharacter>(Owner))
     {
         Enemy->DeliverAnimationHit(Animation);
+    }
+}
+
+void UHBAnimNotifyPulseImpact::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
+{
+    Super::Notify(MeshComp, Animation, EventReference);
+    AActor* Owner = MeshComp ? MeshComp->GetOwner() : nullptr;
+    if (Owner && Owner->HasAuthority())
+    {
+        FGameplayEventData Event;
+        Event.EventTag = HBGetPulseImpactTag();
+        Event.Instigator = Owner;
+        UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(Owner, Event.EventTag, Event);
     }
 }

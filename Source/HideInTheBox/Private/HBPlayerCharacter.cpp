@@ -87,22 +87,11 @@ bool AHBPlayerCharacter::CanExecutePendingGAS(EHBAbility Ability) const
     {
         return GetHealth() + KINDA_SMALL_NUMBER < GetMaxHealth();
     }
-    if (Ability == EHBAbility::EHBA_Pulse)
+    if (Ability == EHBAbility::EHBA_Basic)
     {
-        return FVector::DistSquaredXY(GetActorLocation(), PendingGASAim) <= FMath::Square(PendingGASSpec.fRange);
-    }
-    if (Ability == EHBAbility::EHBA_Basic || Ability == EHBAbility::EHBA_Bolt)
-    {
-        if (!IsValid(Target) || !Target->IsAlive())
-        {
-            return false;
-        }
-        const bool bInRange = FVector::DistSquaredXY(GetActorLocation(), Target->GetActorLocation()) <= FMath::Square(PendingGASSpec.fRange);
-        if (Ability == EHBAbility::EHBA_Bolt)
-        {
-            return bInRange && HasHitLine(Target->GetActorLocation(), Target);
-        }
-        return !bPendingGASInPlace || bInRange;
+        return !AbilitySystem->HasMatchingGameplayTag(HBGetPulseCastingTag()) && IsValid(Target) && Target->IsAlive() &&
+            (!bPendingGASInPlace || FVector::DistSquaredXY(GetActorLocation(), Target->GetActorLocation()) <=
+                FMath::Square(PendingGASSpec.fRange));
     }
     return true;
 }
@@ -143,30 +132,9 @@ bool AHBPlayerCharacter::ExecutePendingGuard(TSubclassOf<UGameplayEffect> GuardE
     return true;
 }
 
-bool AHBPlayerCharacter::ExecutePendingPulse(TSubclassOf<UGameplayEffect> DamageEffectClass)
+AHBEnemyCharacter* AHBPlayerCharacter::GetPendingGASTarget() const
 {
-    const AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
-    if (!Mode || !DamageEffectClass)
-    {
-        return false;
-    }
-    const TArray<TWeakObjectPtr<AHBEnemyCharacter>> Targets = Mode->GetEnemies();
-    for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Targets)
-    {
-        AHBEnemyCharacter* Enemy = Entry.Get();
-        if (IsValid(Enemy) && Enemy->IsAlive() &&
-            FVector::DistSquaredXY(PendingGASAim, Enemy->GetActorLocation()) <= FMath::Square(PendingGASSpec.fRadius) &&
-            HasHitLine(Enemy->GetActorLocation(), Enemy))
-        {
-            HBApplyDamageEffect(this, Enemy, PendingGASSpec.fPower, DamageEffectClass);
-        }
-    }
-    FGameplayCueParameters Cue;
-    Cue.Location = FVector(PendingGASAim.X, PendingGASAim.Y,
-        GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
-    Cue.RawMagnitude = PendingGASSpec.fRadius;
-    AbilitySystem->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Pulse")), Cue);
-    return true;
+    return PendingGASTarget.Get();
 }
 
 void AHBPlayerCharacter::PresentPulseCue(FVector Location, float Radius, FLinearColor Color)
@@ -435,7 +403,7 @@ void AHBPlayerCharacter::Tick(float fDeltaSeconds)
         this->UpdateFeedback();
         return;
     }
-    if (!this->bAttacking)
+    if (!this->bAttacking && !AbilitySystem->HasMatchingGameplayTag(HBGetPulseCastingTag()))
     {
         if (!this->DirectInput.IsNearlyZero())
         {
@@ -603,6 +571,11 @@ void AHBPlayerCharacter::CancelCommands()
             AbilitySystem->CancelAbilityHandle(Spec->Handle);
         }
     }
+    if (AbilitySystem->HasMatchingGameplayTag(HBGetPulseCastingTag()))
+    {
+        const FGameplayTagContainer PulseTags(HBGetPulseAbilityTag());
+        AbilitySystem->CancelAbilities(&PulseTags);
+    }
     this->StopAnimMontage();
     this->GetCharacterMovement()->StopMovementImmediately();
     this->Feedback->HideAll();
@@ -660,18 +633,6 @@ bool AHBPlayerCharacter::ExecuteAbility(EHBAbility Ability, const FHBAbilitySpec
             this->Feedback->PlayEffect(FootPosition, 100.0f, FLinearColor(0.15f, 1.0f, 0.45f));
         }
         return bHealed;
-    }
-    if (Ability == EHBAbility::EHBA_Bolt)
-    {
-        if (!IsValid(Target) || !Target->IsAlive() || FVector::DistSquaredXY(this->GetActorLocation(), Target->GetActorLocation()) > FMath::Square(Spec.fRange) || !this->HasHitLine(Target->GetActorLocation(), Target))
-        {
-            return false;
-        }
-        FGameplayCueParameters Cue;
-        Cue.Location = Target->GetActorLocation();
-        HBApplyDamageEffect(this, Target, Spec.fPower);
-        AbilitySystem->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Bolt")), Cue);
-        return true;
     }
     return false;
 }

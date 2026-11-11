@@ -8,6 +8,7 @@
 #include "HBStructure.h"
 #include "HBDebugSubsystem.h"
 #include "AbilitySystemComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "CommonActivatableWidget.h"
@@ -18,6 +19,7 @@
 #include "Components/TextBlock.h"
 #include "Components/WidgetComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/DamageEvents.h"
 #include "Engine/Engine.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
@@ -29,6 +31,14 @@
 #if WITH_DEV_AUTOMATION_TESTS
 namespace
 {
+    void SendPulseImpact(AHBPlayerCharacter& Player)
+    {
+        FGameplayEventData Event;
+        Event.EventTag = HBGetPulseImpactTag();
+        Event.Instigator = &Player;
+        UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(&Player, Event.EventTag, Event);
+    }
+
     void SendInput(AHBPlayerController& Controller, const FKey& Key, EInputEvent Event)
     {
         const FInputDeviceId Device = IPlatformInputDeviceMapper::Get().GetDefaultInputDevice();
@@ -219,10 +229,17 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     const FDelegateHandle DamageProbe = TargetASC->OnGameplayEffectAppliedDelegateToSelf.AddStatic(
         &OnPulseDamageApplied, ASC, &bPulseAppliedDamageEffect);
     this->TestEqual(TEXT("Pulse accepted"), Loadout->TryActivateSlot(1, nullptr, Aim, false), EHBActionResult::EHBAR_Accepted);
+    const UAnimMontage* PulseMontage = Anim->GetCurrentActiveMontage();
+    this->TestTrue(TEXT("Pulse uses the charged attack animation"), PulseMontage && PulseMontage->GetFName() == TEXT("AM_GAS_PulseCombat"));
+    this->TestTrue(TEXT("Pulse owns a casting state before impact"), ASC->HasMatchingGameplayTag(HBGetPulseCastingTag()));
+    this->TestEqual(TEXT("Pulse cannot damage before its impact event"), Target->GetHealth(), TargetHealth);
+    this->TestTrue(TEXT("Casting blocks Bolt"), Loadout->TryActivateSlot(5, Target, Aim, false) != EHBActionResult::EHBAR_Accepted);
+    SendPulseImpact(*Player);
+    SendPulseImpact(*Player);
     TargetASC->OnGameplayEffectAppliedDelegateToSelf.Remove(DamageProbe);
     this->TestTrue(TEXT("Pulse applies the Blueprint Damage GE from the player's ASC"), bPulseAppliedDamageEffect);
-    const UAnimMontage* PulseMontage = Anim->GetCurrentActiveMontage();
-    this->TestTrue(TEXT("Pulse uses the charged attack animation"), PulseMontage && PulseMontage->GetFName() == TEXT("AM_GAS_PulseCast"));
+    this->TestFalse(TEXT("Impact releases the Pulse casting state"), ASC->HasMatchingGameplayTag(HBGetPulseCastingTag()));
+    this->TestTrue(TEXT("A surviving target becomes Exposed"), TargetASC->HasMatchingGameplayTag(HBGetExposedTag()));
     TArray<FString> PulseEvents;
     Player->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->GetRecent(PulseEvents, 12);
     this->TestTrue(TEXT("Pulse Gameplay Cue executes the shockwave"), FString::Join(PulseEvents, TEXT("\n")).Contains(TEXT("GameplayCue.GASDemo.Pulse executed")));
@@ -252,8 +269,11 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
 
     this->TestEqual(TEXT("Bolt rejects a cast without an enemy"), Loadout->TryActivateSlot(5, nullptr, Aim, false), EHBActionResult::EHBAR_InvalidTarget);
     this->TestEqual(TEXT("A failed Bolt costs no mana"), Player->GetGASMana(), 80.0f);
+    Target->Heal(30.0f);
+    const float ExposedHealth = Target->GetHealth();
     this->TestEqual(TEXT("Bolt hits the selected enemy"), Loadout->TryActivateSlot(5, Target, Aim, false), EHBActionResult::EHBAR_Accepted);
-    this->TestEqual(TEXT("Bolt deals 25 damage"), Target->GetHealth(), TargetHealth - 45.0f - 25.0f);
+    this->TestEqual(TEXT("Bolt deals 45 damage to an Exposed target"), Target->GetHealth(), ExposedHealth - 45.0f);
+    this->TestFalse(TEXT("Bolt consumes the Exposed effect"), TargetASC->HasMatchingGameplayTag(HBGetExposedTag()));
     this->TestEqual(TEXT("Bolt spends 10 mana"), Player->GetGASMana(), 70.0f);
     this->TestTrue(TEXT("Bolt starts its cooldown"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Bolt)));
     TArray<FString> BoltEvents;
@@ -264,7 +284,35 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestEqual(TEXT("Reset restores mana"), Player->GetGASMana(), 100.0f);
     this->TestNull(TEXT("Reset stops the charged attack animation"), Anim->GetCurrentActiveMontage());
     this->TestFalse(TEXT("Reset clears cooldown tag"), ASC->HasMatchingGameplayTag(HBGetCooldownTag(EHBAbility::EHBA_Pulse)));
+    AHBEnemyCharacter* CancelTarget = Mode->GetEnemies()[0].Get();
+    if (!this->TestNotNull(TEXT("Target for interrupted Pulse"), CancelTarget)) { return false; }
+    const float CancelHealth = CancelTarget->GetHealth();
+    this->TestEqual(TEXT("Pulse starts a second windup"), Loadout->TryActivateSlot(1, nullptr, CancelTarget->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    this->TestEqual(TEXT("Dodge can interrupt a charging Pulse"), Loadout->TryActivateSlot(2, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    this->TestFalse(TEXT("Dodge removes the charging state"), ASC->HasMatchingGameplayTag(HBGetPulseCastingTag()));
+    SendPulseImpact(*Player);
+    this->TestEqual(TEXT("An interrupted Pulse ignores a late impact event"), CancelTarget->GetHealth(), CancelHealth);
+    this->TestFalse(TEXT("An interrupted Pulse leaves no mark"), CancelTarget->GetAbilitySystemComponent()->HasMatchingGameplayTag(HBGetExposedTag()));
+    Mode->ResetGASDemo();
+    CancelTarget = Mode->GetEnemies()[0].Get();
+    if (!this->TestNotNull(TEXT("Target for hit interruption"), CancelTarget)) { return false; }
+    const FVector CancelAim = CancelTarget->GetActorLocation();
+    this->TestEqual(TEXT("Pulse starts without Guard"), Loadout->TryActivateSlot(1, nullptr, CancelAim, false), EHBActionResult::EHBAR_Accepted);
+    Player->TakeDamage(60.0f, FDamageEvent(), nullptr, nullptr);
+    this->TestFalse(TEXT("Unguarded damage interrupts Pulse"), ASC->HasMatchingGameplayTag(HBGetPulseCastingTag()));
+    SendPulseImpact(*Player);
+    this->TestEqual(TEXT("Interrupted Pulse deals no damage"), CancelTarget->GetHealth(), CancelHealth);
+    Mode->ResetGASDemo();
     this->TestEqual(TEXT("Guard accepted"), Loadout->TryActivateSlot(3, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    AHBEnemyCharacter* GuardedCastTarget = Mode->GetEnemies()[0].Get();
+    if (!this->TestNotNull(TEXT("Target for protected cast"), GuardedCastTarget)) { return false; }
+    this->TestEqual(TEXT("Pulse starts with Guard"), Loadout->TryActivateSlot(1, nullptr, GuardedCastTarget->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    Player->TakeDamage(60.0f, FDamageEvent(), nullptr, nullptr);
+    this->TestTrue(TEXT("Guard protects Pulse windup from damage interruption"), ASC->HasMatchingGameplayTag(HBGetPulseCastingTag()));
+    SendPulseImpact(*Player);
+    this->TestEqual(TEXT("Protected Pulse deals its damage"), GuardedCastTarget->GetHealth(), CancelHealth - 45.0f);
+    Mode->ResetGASDemo();
+    this->TestEqual(TEXT("Guard accepted after reset"), Loadout->TryActivateSlot(3, nullptr, Player->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
     const FGameplayTag GuardTag = FGameplayTag::RequestGameplayTag(TEXT("State.Guarding"));
     const TArray<FActiveGameplayEffectHandle> GuardEffects = ASC->GetActiveEffects(
         FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(FGameplayTagContainer(GuardTag)));
@@ -530,6 +578,7 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
         FloorHit, Player->GetActorLocation(), Player->GetActorLocation() - FVector(0, 0, 500), ECC_GameTraceChannel1, FloorQuery));
     const float Health = Enemy->GetHealth();
     this->TestEqual(TEXT("Pulse casts in Dungeon"), Player->GetLoadout()->TryActivateSlot(1, nullptr, Enemy->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
+    SendPulseImpact(*Player);
     this->TestEqual(TEXT("Pulse damages the live enemy through GAS"), Enemy->GetHealth(), Health - 45.0f);
     ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDungeon(this, Mode, Enemy, false, FPlatformTime::Seconds() + 8.0));
     ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDefense(this, Mode, 0, false, FPlatformTime::Seconds() + 35.0));

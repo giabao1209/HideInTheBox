@@ -67,6 +67,14 @@ public:
 };
 
 UCLASS()
+class HIDEINTHEBOX_API UHBGE_Exposed : public UGameplayEffect
+{
+    GENERATED_BODY()
+public:
+    UHBGE_Exposed();
+};
+
+UCLASS()
 class HIDEINTHEBOX_API UHBGE_ManaRegeneration : public UGameplayEffect
 {
     GENERATED_BODY()
@@ -76,7 +84,7 @@ public:
 };
 
 HIDEINTHEBOX_API float HBApplyDamageEffect(AActor* Source, AActor* Target, float Damage,
-    TSubclassOf<UGameplayEffect> EffectClass = UHBGE_Damage::StaticClass());
+    TSubclassOf<UGameplayEffect> EffectClass = UHBGE_Damage::StaticClass(), float ExposedBonus = 0.0f);
 
 UCLASS(Blueprintable)
 class HIDEINTHEBOX_API UHBGameplayCue_Pulse : public UGameplayCueNotify_Static

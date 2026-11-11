@@ -13,6 +13,7 @@ class UHBPauseMenu;
 class UProgressBar;
 class UTextBlock;
 struct FOnAttributeChangeData;
+struct FGameplayTag;
 
 UCLASS(Abstract, Blueprintable)
 class HIDEINTHEBOX_API UHBArenaHUD : public UCommonActivatableWidget
@@ -116,5 +117,6 @@ private:
     TWeakObjectPtr<AHBCombatant> Combatant;
     void UnbindHealthChanges();
     void OnHealthChanged(const FOnAttributeChangeData& Data);
+    void OnExposedChanged(const FGameplayTag Tag, int32 NewCount);
     void RefreshHealth();
 };

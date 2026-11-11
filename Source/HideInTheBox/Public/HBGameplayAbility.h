@@ -35,6 +35,7 @@ public:
         const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
         const FGameplayEventData* TriggerEventData) override;
 protected:
+    virtual bool CanExecuteAction(const AHBPlayerCharacter& Player) const { return true; }
     virtual bool ExecuteAction(AHBPlayerCharacter* Player);
     UFUNCTION(BlueprintImplementableEvent, Category="Ability", meta=(DisplayName="On Ability Committed"))
     void OnAbilityCommitted(AHBPlayerCharacter* Player);
@@ -70,12 +71,25 @@ class HIDEINTHEBOX_API UHBGA_Pulse : public UHBGameplayAbility
     GENERATED_BODY()
 public:
     UHBGA_Pulse();
+    virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle,
+        const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo,
+        const FGameplayEventData* TriggerEventData) override;
 protected:
-    virtual bool ExecuteAction(AHBPlayerCharacter* Player) override;
+    virtual bool CanExecuteAction(const AHBPlayerCharacter& Player) const override;
     UPROPERTY(EditDefaultsOnly, Category="GAS|Pulse")
     TSubclassOf<UGameplayEffect> DamageEffectClass;
+    UPROPERTY(EditDefaultsOnly, Category="GAS|Pulse")
+    TObjectPtr<UAnimMontage> CastMontage;
     UFUNCTION(BlueprintCallable, Category="GAS|Pulse")
     void PlayPulseMontage(UAnimMontage* Montage);
+private:
+    UFUNCTION() void OnImpact(FGameplayEventData Payload);
+    UFUNCTION() void OnHealthLost();
+    UFUNCTION() void OnCastAborted();
+    UFUNCTION() void ReleasePulse();
+    FVector CastAim = FVector::ZeroVector;
+    float CastPower = 0.0f;
+    float CastRadius = 0.0f;
 };
 
 UCLASS()
@@ -112,7 +126,16 @@ class HIDEINTHEBOX_API UHBGA_Bolt : public UHBGameplayAbility
     GENERATED_BODY()
 public:
     UHBGA_Bolt();
+protected:
+    virtual bool CanExecuteAction(const AHBPlayerCharacter& Player) const override;
+    virtual bool ExecuteAction(AHBPlayerCharacter* Player) override;
+    UPROPERTY(EditDefaultsOnly, Category="GAS|Bolt", meta=(ClampMin="0"))
+    float ExposedBonusDamage = 20.0f;
 };
 /** Tags registered in Config/DefaultGameplayTags.ini. Shared across reassigned slots. */
 HIDEINTHEBOX_API FGameplayTag HBGetCooldownTag(EHBAbility Ability);
+FGameplayTag HBGetPulseAbilityTag();
+FGameplayTag HBGetPulseCastingTag();
+FGameplayTag HBGetPulseImpactTag();
+FGameplayTag HBGetExposedTag();
 TSubclassOf<UHBGameplayAbility> HBGetNativeAbilityClass(EHBAbility Ability);

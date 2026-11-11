@@ -4,6 +4,8 @@
 #include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
 #include "HBEnemyCharacter.h"
+#include "HBGameplayAbility.h"
+#include "AbilitySystemComponent.h"
 #include "HBGameMode.h"
 #include "HBIndicator.h"
 #include "HBInputSave.h"
@@ -317,6 +319,7 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
     }
     const bool bBolt = Ability == EHBAbility::EHBA_Bolt;
     const float PreviousHealth = bBolt && IsValid(Target) ? Target->GetHealth() : 0.0f;
+    const bool bExposed = bBolt && IsValid(Target) && Target->GetAbilitySystemComponent()->HasMatchingGameplayTag(HBGetExposedTag());
     const EHBActionResult Result = Loadout->TryActivateSlot(iSlot, Target, AimPoint, bInPlace);
     if (bBolt)
     {
@@ -325,7 +328,8 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
             case EHBActionResult::EHBAR_Accepted:
             {
                 const float CurrentHealth = IsValid(Target) ? Target->GetHealth() : 0.0f;
-                this->LastActionResult = FString::Printf(TEXT("Bolt hit for %.0f damage"), FMath::Max(0.0f, PreviousHealth - CurrentHealth));
+                this->LastActionResult = FString::Printf(TEXT("Bolt hit for %.0f damage%s"), FMath::Max(0.0f, PreviousHealth - CurrentHealth),
+                    bExposed ? TEXT(" (Exposed)") : TEXT(""));
                 return;
             }
             case EHBActionResult::EHBAR_InvalidTarget:

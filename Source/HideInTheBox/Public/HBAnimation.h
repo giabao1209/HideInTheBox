@@ -26,3 +26,11 @@ class HIDEINTHEBOX_API UHBAnimNotifyAttackHit : public UAnimNotify
 public:
     virtual void Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
 };
+
+UCLASS(meta=(DisplayName="HB Pulse Impact"))
+class HIDEINTHEBOX_API UHBAnimNotifyPulseImpact : public UAnimNotify
+{
+    GENERATED_BODY()
+public:
+    virtual void Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
+};

@@ -28,7 +28,10 @@ public:
     bool CanExecutePendingGAS(EHBAbility Ability) const;
     bool ExecutePendingGAS(EHBAbility Ability);
     bool ExecutePendingGuard(TSubclassOf<UGameplayEffect> GuardEffectClass);
-    bool ExecutePendingPulse(TSubclassOf<UGameplayEffect> DamageEffectClass);
+    const FHBAbilitySpec& GetPendingGASSpec() const { return PendingGASSpec; }
+    AHBEnemyCharacter* GetPendingGASTarget() const;
+    FVector GetPendingGASAim() const { return PendingGASAim; }
+    bool HasHitLine(const FVector& Point, const AActor* Target) const;
     float GetPendingGASCost(EHBAbility Ability) const;
     float GetPendingGASCooldown(EHBAbility Ability) const;
     void SetLastGASActivationResult(bool bAccepted) { bLastGASActivationAccepted = bAccepted; }
@@ -102,7 +105,6 @@ private:
     void FinishAttack();
     void OnAttackTimeout();
     void EndDodge();
-    bool HasHitLine(const FVector& Point, const AActor* Target) const;
     void UpdateCommand(float fDeltaSeconds);
     void UpdateFeedback();
     void FaceDirection(const FVector& Direction);
