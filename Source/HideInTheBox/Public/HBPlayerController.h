@@ -10,6 +10,7 @@ class UInputAction;
 class UInputMappingContext;
 class UEnhancedInputComponent;
 class AHBIndicator;
+class AHBGameMode;
 class UUserWidget;
 
 UCLASS(Config=Input)
@@ -24,6 +25,7 @@ public:
     virtual void OnUnPossess() override;
     void ResetTransientInput();
     void SetArenaPaused(bool bPaused);
+    void SetInventoryOpen(bool bOpen);
     void RestartArena();
     bool IsUsingGamepad() const { return this->bGamepad; }
     FString GetLastActionResult() const { return this->LastActionResult; }
@@ -56,6 +58,7 @@ private:
     void HandleMove(const FInputActionValue& Value);
     void HandleKeyboardMove(const FInputActionValue& Value);
     void HandleAim(const FInputActionValue& Value);
+    bool RefreshMouseBuildCell(AHBGameMode& Mode, bool bConfirm);
     void SetInputFamily(bool bFromGamepad);
     void RebuildSlotMapping();
     void LoadBindings();
@@ -79,6 +82,8 @@ private:
     UPROPERTY(Transient) TArray<TObjectPtr<UInputAction>> SlotActions;
     UPROPERTY(Transient) TObjectPtr<UInputAction> AttackInPlaceAction;
     UPROPERTY(Transient) TObjectPtr<AHBIndicator> BuildPreview;
+    UPROPERTY(Transient) TObjectPtr<AHBIndicator> BuildGrid;
+    UPROPERTY(Transient) TObjectPtr<AHBIndicator> BuildCursor;
     UPROPERTY(Transient) TObjectPtr<UUserWidget> PracticeHUD;
     TWeakObjectPtr<UEnhancedInputComponent> BoundInput;
     TArray<uint32> BindingHandles;
@@ -91,5 +96,12 @@ private:
     FVector2D AimInput = FVector2D::ZeroVector;
     bool bGamepad = false;
     bool bAwaitNeutral = false;
+    bool bInventoryOpen = false;
+    bool bBoardReady = false;
+    bool bFenceCursor = false;
+    bool bMouseCellValid = true;
+    bool bManualBuildSelection = false;
+    bool bGridStickHeld = false;
+    FVector2D LastBuildMouse = FVector2D(-1.0, -1.0);
     FString LastActionResult = TEXT("Ready");
 };

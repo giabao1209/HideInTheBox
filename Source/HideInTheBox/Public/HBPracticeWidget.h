@@ -10,6 +10,8 @@
 class AHBCombatant;
 class UCommonActivatableWidgetStack;
 class UHBPauseMenu;
+class UHBLoadoutComponent;
+class AHBGameMode;
 class UProgressBar;
 class UTextBlock;
 struct FOnAttributeChangeData;
@@ -22,6 +24,7 @@ class HIDEINTHEBOX_API UHBArenaHUD : public UCommonActivatableWidget
 
 public:
     void SetPauseMenuVisible(bool bVisible);
+    bool SetInventoryVisible(bool bVisible);
 
 protected:
     virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
@@ -62,6 +65,34 @@ protected:
 
     UPROPERTY(meta=(BindWidget))
     TObjectPtr<UTextBlock> ButtonLabel;
+};
+
+UCLASS(Abstract, Blueprintable)
+class HIDEINTHEBOX_API UHBInventoryMenu : public UCommonActivatableWidget
+{
+    GENERATED_BODY()
+
+protected:
+    virtual void NativeConstruct() override;
+    virtual void NativeDestruct() override;
+    virtual void NativeOnActivated() override;
+    virtual UWidget* NativeGetDesiredFocusTarget() const override;
+    virtual TOptional<FUIInputConfig> GetDesiredInputConfig() const override;
+
+private:
+    void Refresh();
+    void SelectSlot(int32 Index);
+    void SelectAbility(int32 Index);
+    void Equip(int32 Index);
+    void Assign();
+    void Upgrade();
+    void Close();
+    UHBLoadoutComponent* GetLoadout() const;
+    AHBGameMode* GetArena() const;
+    void BindButton(const TCHAR* Name, void (UHBInventoryMenu::*Handler)(int32), int32 Index);
+    int32 SelectedSlot = 0;
+    int32 SelectedAbility = 0;
+    FString Feedback;
 };
 
 /** Supplies live gameplay values to the designer-owned widget tree. */

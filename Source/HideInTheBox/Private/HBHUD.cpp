@@ -1,4 +1,5 @@
 #include "HBHUD.h"
+#include "HBArenaDebugPanel.h"
 #include "HBDebugSubsystem.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformTime.h"
@@ -12,6 +13,7 @@
 #include "Animation/AnimInstance.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 
 void AHBHUD::Label(const FString& Text, float fX, float fY, const FLinearColor& Color, float fScale)
@@ -135,7 +137,22 @@ void AHBHUD::DrawHUD()
                 continue;
             }
             const FVector Screen = this->Project(Mode->GetGreedPosition(iChest) + FVector(0.0f, 0.0f, 60.0f));
-            if (Screen.Z > 0.0f) { this->Label(TEXT("CACHE  +30 / +3 THREAT"), Screen.X - 70.0f, Screen.Y, Gold, 0.8f); }
+            if (Screen.Z > 0.0f)
+            {
+                const bool bLocked = Mode->IsGreedLocked(iChest);
+                this->Label(bLocked ? TEXT("CACHE  /  GUARDED") : TEXT("CACHE  +30 / +3 THREAT"),
+                    Screen.X - 70.0f, Screen.Y, bLocked ? Muted : Gold, 0.8f);
+            }
+        }
+        if (Mode->UsesDungeonRoute())
+        {
+            const FVector Screen = this->Project(Mode->GetDungeonExitPosition() + FVector(0, 0, 148));
+            if (Screen.Z > 0.0f)
+            {
+                const bool bOpen = Mode->GetDungeonEnemiesRemaining() == 0;
+                this->Label(bOpen ? TEXT("EXTRACTION READY") : TEXT("EXTRACTION LOCKED"),
+                    Screen.X - 65.0f, Screen.Y, bOpen ? Ice : Muted, 0.85f);
+            }
         }
     }
 #if !UE_BUILD_SHIPPING
@@ -221,11 +238,82 @@ void AHBHUD::DrawHUD()
     }
 }
 
+bool AHBHUD::IsArenaTestPanelOpen() const
+{
+    return ArenaDebugPanel && ArenaDebugPanel->IsInViewport() && ArenaDebugPanel->HasTestControls();
+}
+
+void AHBHUD::CloseArenaTestPanel()
+{
+    if (!IsArenaTestPanelOpen()) { return; }
+    ArenaDebugPanel->RemoveFromParent();
+    if (AHBPlayerController* Controller = Cast<AHBPlayerController>(PlayerOwner))
+    {
+        Controller->ResetTransientInput();
+        Controller->SetPause(false);
+        FInputModeGameAndUI InputMode;
+        InputMode.SetHideCursorDuringCapture(false);
+        if (UGameViewportClient* Viewport = GetWorld()->GetGameViewport())
+        {
+            InputMode.SetWidgetToFocus(Viewport->GetGameViewportWidget());
+        }
+        Controller->SetInputMode(InputMode);
+    }
+}
+
 void AHBHUD::ToggleDiagnostics()
 {
 #if !UE_BUILD_SHIPPING
+    if (ArenaDebugPanel && ArenaDebugPanel->IsInViewport())
+    {
+        if (IsArenaTestPanelOpen()) { CloseArenaTestPanel(); }
+        else { ArenaDebugPanel->RemoveFromParent(); }
+        bShowDiagnostics = true;
+        iDebugPage = 0;
+        return;
+    }
     if (!this->bShowDiagnostics)
     {
+        const AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
+        AHBPlayerController* Controller = Cast<AHBPlayerController>(PlayerOwner);
+        if (Mode && !Mode->IsGASDemo() && Controller)
+        {
+            if (!ArenaDebugPanel)
+            {
+                UClass* PanelClass = LoadClass<UHBArenaDebugPanel>(nullptr,
+                    TEXT("/Game/DemoArena/UI/WBP_DemoArenaTestPanel.WBP_DemoArenaTestPanel_C"), nullptr, LOAD_NoWarn);
+                if (!PanelClass)
+                {
+                    PanelClass = LoadClass<UHBArenaDebugPanel>(nullptr,
+                        TEXT("/Game/DemoArena/UI/WBP_DemoArenaDebug.WBP_DemoArenaDebug_C"), nullptr, LOAD_NoWarn);
+                }
+                if (PanelClass) { ArenaDebugPanel = CreateWidget<UHBArenaDebugPanel>(PlayerOwner, PanelClass); }
+            }
+            if (ArenaDebugPanel && ArenaDebugPanel->HasTestControls())
+            {
+                const AHBPlayerCharacter* Player = Mode->GetPlayer();
+                if (Mode->UsesDungeonRoute() && Player && Player->IsAlive() &&
+                    Mode->GetPhase() != EHBPhase::EHBP_GameOver && !Controller->IsPaused() &&
+                    ArenaDebugPanel->AddToPlayerScreen(12))
+                {
+                    Controller->ResetTransientInput();
+                    if (Controller->SetPause(true))
+                    {
+                        if (UWidget* FirstButton = ArenaDebugPanel->GetWidgetFromName(TEXT("GrantStones")))
+                        {
+                            FirstButton->SetUserFocus(Controller);
+                        }
+                        return;
+                    }
+                    ArenaDebugPanel->RemoveFromParent();
+                }
+            }
+            else if (ArenaDebugPanel && ArenaDebugPanel->AddToPlayerScreen(12))
+            {
+                ArenaDebugPanel->SetVisibility(ESlateVisibility::HitTestInvisible);
+                return;
+            }
+        }
         this->bShowDiagnostics = true;
         this->iDebugPage = 0;
         return;

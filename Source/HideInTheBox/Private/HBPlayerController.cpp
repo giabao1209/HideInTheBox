@@ -5,6 +5,7 @@
 #include "HBPlayerCharacter.h"
 #include "HBEnemyCharacter.h"
 #include "HBGameplayAbility.h"
+#include "HBStructure.h"
 #include "AbilitySystemComponent.h"
 #include "HBGameMode.h"
 #include "HBIndicator.h"
@@ -28,7 +29,7 @@ namespace HBInput
     enum class EUtility : int32
     {
         EU_Advance, EU_Build, EU_Cycle, EU_Repair, EU_Cancel, EU_Pause, EU_Restart,
-        EU_Interact, EU_Diagnostics, EU_PracticeReset, EU_PracticeDamage, EU_PracticeRefill, EU_Count
+        EU_Interact, EU_Diagnostics, EU_PracticeReset, EU_PracticeDamage, EU_PracticeRefill, EU_Inventory, EU_Count
     };
     const TCHAR* SaveSlot = TEXT("HideInTheBox_Input_v1");
 }
@@ -272,8 +273,15 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
     {
         if (iSlot == 0)
         {
+            if (!bFromGamepad && !RefreshMouseBuildCell(*Mode, true))
+            {
+                LastActionResult = TEXT("Select a cell inside the build board.");
+                return;
+            }
             Mode->ConfirmBuild();
         }
+        else if (iSlot == 1) { Mode->SwitchBuildType(); }
+        else if (iSlot == 2) { Mode->RotateBuildFence(); }
         return;
     }
     UHBLoadoutComponent* Loadout = PlayerCharacter->GetLoadout();
@@ -303,12 +311,16 @@ void AHBPlayerController::HandleSlot(const FInputActionValue& Value, int32 iSlot
         {
             bInPlace = Enhanced->GetActionValue(this->AttackInPlaceAction).Get<bool>();
         }
+        const bool bGroundMove = iSlot == 0 && GetSlotKey(iSlot, false) == EKeys::LeftMouseButton &&
+            bFloor && !Target && !bInPlace;
+        if (bGroundMove)
+        {
+            PlayerCharacter->RequestMove(AimPoint);
+            return;
+        }
         if (iSlot == 0 && Ability == EHBAbility::EHBA_Basic && !Target)
         {
-            if (bFloor && !bInPlace)
-            {
-                PlayerCharacter->RequestMove(AimPoint);
-            }
+            if (bFloor && !bInPlace) { PlayerCharacter->RequestMove(AimPoint); }
             return;
         }
         if (!bFloor && Ability == EHBAbility::EHBA_Pulse)
@@ -362,7 +374,21 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         *GetNameSafe(InputAction), bFromGamepad ? TEXT("Gamepad") : TEXT("Mouse/KB")));
     if (Action == HBInput::EUtility::EU_Pause)
     {
+        if (bInventoryOpen)
+        {
+            SetInventoryOpen(false);
+            return;
+        }
         this->SetArenaPaused(!this->IsPaused());
+        return;
+    }
+    if (Action == HBInput::EUtility::EU_Inventory)
+    {
+        if (!this->bAwaitNeutral || bInventoryOpen)
+        {
+            this->SetInputFamily(bFromGamepad);
+            SetInventoryOpen(!bInventoryOpen);
+        }
         return;
     }
     if (this->bAwaitNeutral || this->IsPaused())
@@ -388,9 +414,32 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
     switch (Action)
     {
         case HBInput::EUtility::EU_Advance: Mode->AdvancePhase(); break;
-        case HBInput::EUtility::EU_Build: Mode->ToggleBuildMode(); break;
-        case HBInput::EUtility::EU_Cycle: Mode->CycleBuildSocket(); break;
-        case HBInput::EUtility::EU_Repair: Mode->RepairGate(); break;
+        case HBInput::EUtility::EU_Build:
+        {
+            const bool bWasBuilding = PlayerCharacter->IsBuilding();
+            Mode->ToggleBuildMode();
+            if (bWasBuilding == PlayerCharacter->IsBuilding())
+            {
+                LastActionResult = TEXT("Build is only available in Town or Prep.");
+                break;
+            }
+            LastActionResult.Reset();
+            LastBuildMouse = FVector2D(-1.0, -1.0);
+            bManualBuildSelection = false;
+            break;
+        }
+        case HBInput::EUtility::EU_Cycle:
+            Mode->CycleBuildSocket();
+            bMouseCellValid = true;
+            bManualBuildSelection = true;
+            GetMousePosition(LastBuildMouse.X, LastBuildMouse.Y);
+            break;
+        case HBInput::EUtility::EU_Repair:
+            if (bFromGamepad || !PlayerCharacter->IsBuilding() || RefreshMouseBuildCell(*Mode, true))
+            {
+                Mode->RepairGate();
+            }
+            break;
         case HBInput::EUtility::EU_Interact: Mode->ClaimNearbyGreed(); break;
         case HBInput::EUtility::EU_PracticeReset: this->HBGASReset(); break;
         case HBInput::EUtility::EU_PracticeDamage: this->HBGASDamage(); break;
@@ -398,6 +447,27 @@ void AHBPlayerController::HandleUtility(const FInputActionValue& Value, int32 iA
         case HBInput::EUtility::EU_Cancel: PlayerCharacter->SetBuildMode(false); this->ResetTransientInput(); break;
         default: break;
     }
+}
+
+bool AHBPlayerController::RefreshMouseBuildCell(AHBGameMode& Mode, bool bConfirm)
+{
+    FVector2D Mouse;
+    if (!GetMousePosition(Mouse.X, Mouse.Y))
+    {
+        return bManualBuildSelection;
+    }
+    const bool bMoved = Mouse != LastBuildMouse;
+    if (bMoved)
+    {
+        LastBuildMouse = Mouse;
+        bManualBuildSelection = false;
+    }
+    if (!bManualBuildSelection && (bMoved || bConfirm))
+    {
+        FHitResult Floor;
+        bMouseCellValid = GetHitResultUnderCursor(ECC_GameTraceChannel1, false, Floor) && Mode.SelectBuildCell(Floor.ImpactPoint);
+    }
+    return bMouseCellValid;
 }
 
 bool AHBPlayerController::IsNeutral() const
@@ -464,13 +534,61 @@ void AHBPlayerController::PlayerTick(float fDeltaSeconds)
     {
         if (PlayerCharacter->IsBuilding())
         {
+            const bool bStickDown = bGamepad && AimInput.SizeSquared() > FMath::Square(0.55);
+            if (bStickDown && !bGridStickHeld)
+            {
+                Mode->MoveBuildSelection(PlayerCharacter->GetAimDirection());
+            }
+            bGridStickHeld = bStickDown;
+            if (!bBoardReady)
+            {
+                if (!BuildGrid) { BuildGrid = GetWorld()->SpawnActor<AHBIndicator>(); }
+                if (!BuildCursor) { BuildCursor = GetWorld()->SpawnActor<AHBIndicator>(); }
+                if (BuildGrid && BuildCursor)
+                {
+                    UMaterialInterface* GridMaterial = LoadObject<UMaterialInterface>(nullptr,
+                        TEXT("/Game/GASDemo/Presentation/FX/M_GAS_ArenaRing.M_GAS_ArenaRing"));
+                    BuildGrid->SetRingMaterial(GridMaterial);
+                    BuildGrid->SetHexCells(Mode->GetBuildCells(), AHBGameMode::BuildCellRadius - 2.0f, 2.3f);
+                    BuildGrid->SetColor(FLinearColor(0.08f, 0.31f, 0.44f));
+                    BuildCursor->SetRingMaterial(GridMaterial);
+                    BuildCursor->SetHexCells({ FVector::ZeroVector }, AHBGameMode::BuildCellRadius - 4.0f, 5.0f);
+                    bBoardReady = true;
+                }
+            }
+            if (!bGamepad) { RefreshMouseBuildCell(*Mode, false); }
             FVector Position = Mode->GetBuildSocket();
-            Position.Z = 0.0f;
-            this->BuildPreview->ShowAt(Position, 70.0f, 2.0f, Mode->IsBuildSocketOccupied() ? FLinearColor::Red : FLinearColor::Green);
+            const AHBStructure* Structure = Mode->GetSelectedStructure();
+            const AHBStructure* Turret = Mode->GetSelectedTurret();
+            const bool bFence = Mode->GetBuildType() == EHBStructure::EHBS_Fence;
+            const bool bSelected = bGamepad || bMouseCellValid;
+            const FLinearColor Color = Structure ? FLinearColor(0.15f, 0.65f, 1.0f) :
+                (Mode->CanAffordSelectedBuild() ? FLinearColor(0.13f, 1.6f, 0.52f) : FLinearColor(1.4f, 0.10f, 0.06f));
+            if (bBoardReady)
+            {
+                BuildGrid->SetActorHiddenInGame(false);
+                if (bFenceCursor != bFence)
+                {
+                    BuildCursor->SetHexCells({ FVector::ZeroVector }, AHBGameMode::BuildCellRadius - 4.0f, 5.0f, bFence);
+                    bFenceCursor = bFence;
+                }
+                BuildCursor->SetActorLocation(Position + FVector(0, 0, 2));
+                BuildCursor->SetActorRotation(FRotator(0, bFence ? Mode->GetBuildYaw() : 0, 0));
+                BuildCursor->SetColor(Color);
+                BuildCursor->SetActorHiddenInGame(!bSelected);
+            }
+            if (bSelected && (Turret || (!Structure && !bFence)))
+            {
+                BuildPreview->ShowAt(Position, Turret ? Turret->GetFireRange() : 750.0f, 0.75f, Color * 0.43f);
+            }
+            else { BuildPreview->SetActorHiddenInGame(true); }
         }
         else
         {
+            bGridStickHeld = false;
             this->BuildPreview->SetActorHiddenInGame(true);
+            if (BuildGrid) { BuildGrid->SetActorHiddenInGame(true); }
+            if (BuildCursor) { BuildCursor->SetActorHiddenInGame(true); }
         }
     }
 }
@@ -491,6 +609,8 @@ void AHBPlayerController::ResetTransientInput()
     {
         this->BuildPreview->SetActorHiddenInGame(true);
     }
+    if (BuildGrid) { BuildGrid->SetActorHiddenInGame(true); }
+    if (BuildCursor) { BuildCursor->SetActorHiddenInGame(true); }
 }
 
 void AHBPlayerController::FlushPressedKeys()
@@ -522,11 +642,47 @@ void AHBPlayerController::OnDeviceConnectionChanged(EInputDeviceConnectionState 
 
 void AHBPlayerController::SetArenaPaused(bool bPaused)
 {
+    if (AHBHUD* ArenaHUD = Cast<AHBHUD>(GetHUD()); ArenaHUD && ArenaHUD->IsArenaTestPanelOpen())
+    {
+        if (!bPaused) { ArenaHUD->CloseArenaTestPanel(); }
+        return;
+    }
+    if (bInventoryOpen)
+    {
+        if (!bPaused) { SetInventoryOpen(false); }
+        return;
+    }
     ResetTransientInput();
     SetPause(bPaused);
     if (UHBArenaHUD* ArenaHUD = Cast<UHBArenaHUD>(PracticeHUD))
     {
         ArenaHUD->SetPauseMenuVisible(IsPaused());
+    }
+}
+
+void AHBPlayerController::SetInventoryOpen(bool bOpen)
+{
+    UHBArenaHUD* HUD = Cast<UHBArenaHUD>(PracticeHUD);
+    if (!HUD || bOpen == bInventoryOpen) { return; }
+    if (bOpen)
+    {
+        const AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
+        AHBPlayerCharacter* PlayerCharacter = Cast<AHBPlayerCharacter>(GetPawn());
+        if (IsPaused() || !Mode || !Mode->UsesDungeonRoute() || Mode->GetPhase() == EHBPhase::EHBP_GameOver ||
+            !PlayerCharacter || !PlayerCharacter->IsAlive()) { return; }
+        if (PlayerCharacter->IsBuilding()) { PlayerCharacter->SetBuildMode(false); }
+        if (!HUD->SetInventoryVisible(true)) { return; }
+        bInventoryOpen = true;
+        LastActionResult.Reset();
+        ResetTransientInput();
+        SetPause(true);
+    }
+    else
+    {
+        bInventoryOpen = false;
+        HUD->SetInventoryVisible(false);
+        ResetTransientInput();
+        SetPause(false);
     }
 }
 
@@ -686,6 +842,8 @@ void AHBPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
     {
         this->BuildPreview->Destroy();
     }
+    if (IsValid(BuildGrid)) { BuildGrid->Destroy(); }
+    if (IsValid(BuildCursor)) { BuildCursor->Destroy(); }
     Super::EndPlay(EndPlayReason);
 }
 

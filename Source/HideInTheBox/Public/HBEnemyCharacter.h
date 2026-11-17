@@ -6,6 +6,8 @@ class AHBGameMode;
 class UAnimMontage;
 class UAnimSequenceBase;
 class UHBGASTargetWidget;
+class UHBGA_EnemySlam;
+class AHBIndicator;
 
 UCLASS()
 class HIDEINTHEBOX_API AHBEnemyCharacter : public AHBCombatant
@@ -15,16 +17,19 @@ public:
     AHBEnemyCharacter();
     virtual void Tick(float fDeltaSeconds) override;
     void DeliverAnimationHit(UAnimSequenceBase* Animation);
+    UAnimMontage* GetMeleeMontage() const { return AttackMontage; }
+    void EnableSlam();
+    void ShowSlamWarning(FVector Position, float Radius, FLinearColor Color, class UMaterialInterface* Material);
+    void HideSlamWarning();
 protected:
     UPROPERTY(EditDefaultsOnly, Category="GAS Demo") TSubclassOf<UHBGASTargetWidget> PracticeHealthWidgetClass;
     UPROPERTY(EditDefaultsOnly, Category="Combat") TObjectPtr<UAnimMontage> AttackMontage;
+    UPROPERTY(EditDefaultsOnly, Category="Combat") TSubclassOf<UHBGA_EnemySlam> SlamAbilityClass;
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void OnDeath() override;
 private:
-    void ApplyMeleeDamage(AActor* Target);
     TWeakObjectPtr<AHBGameMode> Mode;
-    TWeakObjectPtr<AActor> PendingAttackTarget;
-    float PendingAttackRange = 0.0f;
-    float fNextAttackTime = 0.0f;
+    UPROPERTY(Transient) TObjectPtr<AHBIndicator> SlamWarning;
+    bool bSlamEnabled = false;
 };

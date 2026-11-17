@@ -1,4 +1,5 @@
 #include "HBGameplayAbility.h"
+#include "HBArenaAbilities.h"
 #include "HBPlayerCharacter.h"
 #include "HBAttributes.h"
 #include "HBEffects.h"
@@ -330,7 +331,7 @@ void UHBGA_Pulse::ReleasePulse()
     Cue.Location = FVector(CastAim.X, CastAim.Y,
         Player->GetActorLocation().Z - Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
     Cue.RawMagnitude = CastRadius;
-    ASC->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Pulse")), Cue);
+    ASC->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Pulse.Burst")), Cue);
     EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
 }
 
@@ -351,13 +352,15 @@ bool UHBGA_Bolt::ExecuteAction(AHBPlayerCharacter* Player)
     }
     FGameplayCueParameters Cue;
     Cue.Location = Target->GetActorLocation();
+    const bool bExposed = Target->GetAbilitySystemComponent()->HasMatchingGameplayTag(HBGetExposedTag());
     const float Damage = HBApplyDamageEffect(Player, Target, Player->GetPendingGASSpec().fPower,
         UHBGE_Damage::StaticClass(), ExposedBonusDamage);
-    if (Damage > 0.0f && IsValid(Target))
+    if (bExposed && Damage > 0.0f && IsValid(Target) && Target->IsAlive())
     {
         Target->GetAbilitySystemComponent()->RemoveActiveEffectsWithGrantedTags(FGameplayTagContainer(HBGetExposedTag()));
+        HBInterruptEnemySlam(Target);
     }
-    Player->GetAbilitySystemComponent()->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Bolt")), Cue);
+    Player->GetAbilitySystemComponent()->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Bolt.Impact")), Cue);
     return true;
 }
 

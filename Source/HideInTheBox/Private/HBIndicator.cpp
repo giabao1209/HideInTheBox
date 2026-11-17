@@ -1,5 +1,6 @@
 #include "HBIndicator.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "Components/MaterialBillboardComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -58,6 +59,34 @@ void AHBIndicator::ShowAt(const FVector& Position, float fRadius, float fThickne
         this->Material->SetVectorParameterValue(TEXT("Color"), Color);
     }
     this->SetActorHiddenInGame(false);
+}
+
+void AHBIndicator::SetHexCells(const TArray<FVector>& Cells, float Radius, float Width, bool bFenceGuide)
+{
+    Segments->ClearInstances();
+    for (const FVector& Cell : Cells)
+    {
+        for (int32 Edge = 0; Edge < 6; ++Edge)
+        {
+            const double Angle = UE_DOUBLE_PI * Edge / 3.0;
+            const FVector A = Cell + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0) * Radius;
+            const FVector B = Cell + FVector(FMath::Cos(Angle + UE_DOUBLE_PI / 3.0), FMath::Sin(Angle + UE_DOUBLE_PI / 3.0), 0) * Radius;
+            Segments->AddInstance(FTransform((B - A).Rotation(), (A + B) * 0.5 + FVector(0, 0, 4),
+                FVector(Radius / 100.0, Width / 100.0, 0.02)));
+        }
+        if (bFenceGuide)
+        {
+            Segments->AddInstance(FTransform(FRotator::ZeroRotator, Cell + FVector(0, 0, 5), FVector(1.44, 0.11, 0.02)));
+        }
+    }
+}
+
+void AHBIndicator::SetColor(const FLinearColor& Color)
+{
+    if (Material)
+    {
+        Material->SetVectorParameterValue(TEXT("Color"), Color);
+    }
 }
 
 UHBFeedbackComponent::UHBFeedbackComponent()
@@ -167,6 +196,27 @@ void AHBIndicator::PlayBurst(const FVector& Position, float fRadius, const FLine
     this->ShowAt(Position, fRadius * 0.3f, 3.0f, Color);
     this->SetActorTickEnabled(true);
     this->SetLifeSpan(this->fBurstDuration);
+}
+
+void AHBIndicator::PlaySprite(const FVector& Position, UMaterialInterface* SpriteMaterial, const FLinearColor& Color,
+    float Size, float Duration)
+{
+    if (!SpriteMaterial) { Destroy(); return; }
+    Segments->SetVisibility(false);
+    SetActorLocation(Position);
+    Material = UMaterialInstanceDynamic::Create(SpriteMaterial, this);
+    Material->SetVectorParameterValue(TEXT("Color"), Color);
+    UMaterialBillboardComponent* Sprite = NewObject<UMaterialBillboardComponent>(this);
+    Sprite->SetupAttachment(GetRootComponent());
+    Sprite->AddElement(Material, nullptr, false, Size, Size, nullptr);
+    Sprite->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Sprite->RegisterComponent();
+    bExpandBurst = false;
+    fBurstDuration = FMath::Max(0.05f, Duration);
+    fBurstElapsed = 0.0f;
+    SetActorHiddenInGame(false);
+    SetActorTickEnabled(true);
+    SetLifeSpan(fBurstDuration);
 }
 
 void AHBIndicator::Tick(float fDeltaSeconds)

@@ -127,9 +127,14 @@ bool AHBPlayerCharacter::ExecutePendingGuard(TSubclassOf<UGameplayEffect> GuardE
             AbilitySystem->RemoveActiveGameplayEffect(PreviousGuard);
         }
     }
-    const FVector FootPosition = GetActorLocation() - FVector(0, 0, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
-    Feedback->PlayEffect(FootPosition, 110.0f, FLinearColor(0.65f, 0.35f, 1.0f));
     return true;
+}
+
+void AHBPlayerCharacter::OnGuardingChanged(const FGameplayTag Tag, int32 NewCount)
+{
+    const FGameplayTag Cue = FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Guard"));
+    if (NewCount > 0) { AbilitySystem->AddGameplayCue(Cue); }
+    else { AbilitySystem->RemoveGameplayCue(Cue); }
 }
 
 AHBEnemyCharacter* AHBPlayerCharacter::GetPendingGASTarget() const
@@ -385,6 +390,17 @@ void AHBPlayerCharacter::UpdateCommand(float fDeltaSeconds)
 void AHBPlayerCharacter::Tick(float fDeltaSeconds)
 {
     Super::Tick(fDeltaSeconds);
+    if (HasArenaArt() && IsLocallyControlled())
+    {
+        const AHBGameMode* Mode = GetWorld()->GetAuthGameMode<AHBGameMode>();
+        const bool bDungeon = Mode && Mode->GetPhase() == EHBPhase::EHBP_Dungeon;
+        const float Distance = bBuildMode ? 1800.0f : (bDungeon ? 1430.0f : 1640.0f);
+        FRotator Angle = CameraBoom->GetComponentRotation();
+        Angle.Pitch = FMath::FInterpTo(Angle.Pitch, bBuildMode ? -60.0 : (bDungeon ? -52.0 : -57.0),
+            fDeltaSeconds, 5.0);
+        CameraBoom->SetWorldRotation(Angle);
+        CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, Distance, fDeltaSeconds, 5.0f);
+    }
     if (!this->IsAlive() || !this->IsLocallyControlled() || this->bBuildMode)
     {
         this->Feedback->HideAll();
@@ -487,12 +503,21 @@ void AHBPlayerCharacter::DeliverAttackHit()
     UHBDebugSubsystem::Record(this, TEXT("Animation"), TEXT("Hit event accepted (notify or fallback)"));
     this->bHitDelivered = true;
     UE_LOG(LogHideInTheBox, Log, TEXT("Attack hit event: source=%s player=%s"), *this->AttackPlayback, *this->GetName());
+    FGameplayCueParameters SwingCue;
+    SwingCue.Location = GetActorLocation() + GetActorForwardVector() * 76.0f + FVector(0, 0, 33);
+    SwingCue.Normal = GetActorForwardVector();
+    AbilitySystem->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.BasicSwing")), SwingCue);
     AHBEnemyCharacter* Target = this->AttackTarget.Get();
     if (IsValid(Target) && Target->IsAlive() && FVector::DistSquaredXY(this->GetActorLocation(), Target->GetActorLocation()) <= FMath::Square(this->fAttackRange + 25.0f) && this->HasHitLine(Target->GetActorLocation(), Target))
     {
-        HBApplyDamageEffect(this, Target, this->fAttackDamage);
+        FGameplayCueParameters HitCue;
+        HitCue.Location = Target->GetActorLocation() + FVector(0, 0, 12);
+        const float Damage = HBApplyDamageEffect(this, Target, this->fAttackDamage);
         ++this->iHitCount;
-        this->Feedback->PlayEffect(this->GetActorLocation() - FVector(0.0f, 0.0f, this->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()), 90.0f, FLinearColor(1.0f, 0.5f, 0.15f));
+        if (Damage > 0.0f)
+        {
+            AbilitySystem->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.BasicHit")), HitCue);
+        }
     }
     else
     {
@@ -618,7 +643,10 @@ bool AHBPlayerCharacter::ExecuteAbility(EHBAbility Ability, const FHBAbilitySpec
         }
         this->DodgeDirection = Direction.GetSafeNormal2D();
         this->bDodging = true;
-        this->Feedback->PlayEffect(FootPosition, 100.0f, FLinearColor(0.2f, 0.8f, 1.0f));
+        FGameplayCueParameters Cue;
+        Cue.Location = FootPosition;
+        Cue.Normal = DodgeDirection;
+        AbilitySystem->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Dodge")), Cue);
         this->fDodgeEndTime = this->GetWorld()->GetTimeSeconds() + Spec.fDuration;
         this->fSavedWalkSpeed = this->GetCharacterMovement()->MaxWalkSpeed;
         this->GetCharacterMovement()->MaxWalkSpeed = FMath::Min(1600.0f, Spec.fRange / Spec.fDuration);
@@ -630,7 +658,9 @@ bool AHBPlayerCharacter::ExecuteAbility(EHBAbility Ability, const FHBAbilitySpec
         const bool bHealed = this->Heal(Spec.fPower) > 0.0f;
         if (bHealed)
         {
-            this->Feedback->PlayEffect(FootPosition, 100.0f, FLinearColor(0.15f, 1.0f, 0.45f));
+            FGameplayCueParameters Cue;
+            Cue.Location = FootPosition;
+            AbilitySystem->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.GASDemo.Mend")), Cue);
         }
         return bHealed;
     }
@@ -752,6 +782,8 @@ void AHBPlayerCharacter::BeginPlay()
     this->Loadout->RefreshManaRegeneration();
     if (HasAuthority() && AbilitySystem)
     {
+        AbilitySystem->RegisterGameplayTagEvent(FGameplayTag::RequestGameplayTag(TEXT("State.Guarding")),
+            EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AHBPlayerCharacter::OnGuardingChanged);
         for (int32 Index = 0; Index < HBRuleCore::iAbilityCount; ++Index)
         {
             const TSubclassOf<UHBGameplayAbility> AbilityClass = Loadout->GetAbilityClass(static_cast<EHBAbility>(Index));

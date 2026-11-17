@@ -1,4 +1,5 @@
 #include "HBGameMode.h"
+#include "HBArenaAbilities.h"
 #include "HBPlayerCharacter.h"
 #include "HBEnemyCharacter.h"
 #include "HBEffects.h"
@@ -19,8 +20,10 @@
 #include "Components/TextBlock.h"
 #include "Components/WidgetComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/DamageEvents.h"
 #include "Engine/Engine.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "InputKeyEventArgs.h"
@@ -61,6 +64,20 @@ namespace
         FActiveGameplayEffectHandle, UAbilitySystemComponent* ExpectedSource, bool* bApplied)
     {
         *bApplied |= Source == ExpectedSource && Spec.Def->GetClass()->GetName() == TEXT("GE_GASDemo_Damage_C");
+    }
+
+    void OnConstructionCommitted(UGameplayAbility* Ability, int32* Commits)
+    {
+        if (IsValid(Ability) && Ability->IsA<UHBGA_Construction>())
+        {
+            ++*Commits;
+        }
+    }
+
+    void OnFenceRepairApplied(UAbilitySystemComponent* Source, const FGameplayEffectSpec& Spec,
+        FActiveGameplayEffectHandle, UAbilitySystemComponent* PlayerASC, bool* bApplied)
+    {
+        *bApplied |= Source == PlayerASC && Spec.Def && Spec.Def->IsA<UHBGE_HealthDelta>();
     }
 }
 
@@ -242,7 +259,7 @@ bool FHBGASPracticeTest::RunTest(const FString& Parameters)
     this->TestTrue(TEXT("A surviving target becomes Exposed"), TargetASC->HasMatchingGameplayTag(HBGetExposedTag()));
     TArray<FString> PulseEvents;
     Player->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->GetRecent(PulseEvents, 12);
-    this->TestTrue(TEXT("Pulse Gameplay Cue executes the shockwave"), FString::Join(PulseEvents, TEXT("\n")).Contains(TEXT("GameplayCue.GASDemo.Pulse executed")));
+    this->TestTrue(TEXT("Pulse Gameplay Cue executes the shockwave"), FString::Join(PulseEvents, TEXT("\n")).Contains(TEXT("GameplayCue.GASDemo.Pulse.Burst executed")));
     this->TestEqual(TEXT("Pulse spends 20 mana"), Player->GetGASMana(), 80.0f);
     this->TestEqual(TEXT("Pulse GE deals 45 damage"), Target->GetHealth(), TargetHealth - 45.0f);
     const UProgressBar* TargetBar = TargetWidget ? Cast<UProgressBar>(TargetWidget->GetWidgetFromName(TEXT("TargetHealthBar"))) : nullptr;
@@ -432,26 +449,130 @@ bool FHBVerifyArenaDungeon::Update()
     Mode->GetWorld()->GetSubsystem<UHBDebugSubsystem>()->GetRecent(CombatEvents, 24);
     Test->TestTrue(TEXT("Enemy melee damage comes from the montage notify"),
         FString::Join(CombatEvents, TEXT("\n")).Contains(TEXT("Enemy melee hit via montage notify")));
-    DefeatArenaEnemies(*Mode);
+    const TArray<TWeakObjectPtr<AHBEnemyCharacter>> DungeonEnemies = Mode->GetEnemies();
+    const FVector Cache = Mode->GetGreedPosition(0);
+    const FVector Entry = Player->GetActorLocation();
+    Player->SetActorLocation(FVector(Cache.X, Cache.Y, Entry.Z));
+    Mode->ClaimNearbyGreed();
+    Test->TestFalse(TEXT("A guarded side cache cannot be opened"), Mode->IsGreedClaimed(0));
+    Player->SetActorLocation(Entry);
+    for (const TWeakObjectPtr<AHBEnemyCharacter>& Guard : DungeonEnemies)
+    {
+        if (Guard.IsValid() && !Guard->ActorHasTag(TEXT("HB_DungeonGuard_East")))
+        {
+            Guard->ApplyHealthDelta(-Guard->GetHealth());
+        }
+    }
     Test->TestEqual(TEXT("Six dungeon kills earn 90 stones"), Mode->GetStones(), 90);
     Test->TestEqual(TEXT("Six dungeon kills earn six threat"), Mode->GetThreat(), 6);
-    Test->TestTrue(TEXT("The last kill displays the return instruction"), Mode->GetStatus().Contains(TEXT("Dungeon clear")));
-    const FVector Cache = Mode->GetGreedPosition(0);
+    Test->TestEqual(TEXT("Optional east guards can be left behind"), Mode->GetEnemies().Num(), 2);
+    Test->TestEqual(TEXT("Clearing the main route opens extraction"), Mode->GetDungeonEnemiesRemaining(), 0);
+    Mode->AdvancePhase();
+    Test->TestEqual(TEXT("Extraction requires reaching the beacon"), Mode->GetPhase(), EHBPhase::EHBP_Dungeon);
     Player->SetActorLocation(FVector(Cache.X, Cache.Y, Player->GetActorLocation().Z));
     Mode->ClaimNearbyGreed();
     Test->TestTrue(TEXT("The Dungeon cache can be collected"), Mode->IsGreedClaimed(0));
+    UHBLoadoutComponent* Loadout = Player->GetLoadout();
+    Test->TestTrue(TEXT("West cache awards the Raider Axe"), Loadout->OwnsItem(1));
+    Test->TestFalse(TEXT("Equipment changes are blocked inside Dungeon"), Loadout->EquipItem(1));
     Test->TestEqual(TEXT("The cache grants 30 stones"), Mode->GetStones(), 120);
     Test->TestEqual(TEXT("The cache adds three threat"), Mode->GetThreat(), 9);
-    Test->TestTrue(TEXT("Claiming a cache keeps the return instruction"), Mode->GetStatus().Contains(TEXT("returns to prep")));
+    Test->TestTrue(TEXT("Claiming a cache keeps the extraction instruction"), Mode->GetStatus().Contains(TEXT("extraction")));
+    const FVector Exit = Mode->GetDungeonExitPosition();
+    Player->SetActorLocation(FVector(Exit.X, Exit.Y, Entry.Z));
     Mode->AdvancePhase();
     Test->TestEqual(TEXT("Cleared dungeon advances to prep"), Mode->GetPhase(), EHBPhase::EHBP_Return);
+    Test->TestFalse(TEXT("A locked shield cannot be equipped"), Loadout->EquipItem(3));
+    const float SwordDamage = Loadout->GetSlotSpec(0).fPower;
+    const float SwordRange = Loadout->GetSlotSpec(0).fRange;
+    Test->TestTrue(TEXT("The looted axe equips in Prep"), Loadout->EquipItem(1));
+    Test->TestEqual(TEXT("The axe changes effective Basic damage"), Loadout->GetSlotSpec(0).fPower, SwordDamage + 10.0f);
+    Test->TestEqual(TEXT("The axe trades reach for damage"), Loadout->GetSlotSpec(0).fRange, SwordRange - 15.0f);
+    bool bAxeAttached = false;
+    TArray<UStaticMeshComponent*> GearMeshes;
+    Player->GetComponents(GearMeshes);
+    for (const UStaticMeshComponent* Component : GearMeshes)
+    {
+        bAxeAttached |= Component->GetAttachSocketName() == TEXT("handslot_r") &&
+            GetFNameSafe(Component->GetStaticMesh()) == TEXT("axe_1handed");
+    }
+    Test->TestTrue(TEXT("The axe replaces the mesh on the animated weapon hand"), bAxeAttached);
+    Test->TestTrue(TEXT("The sword can be re-equipped"), Loadout->EquipItem(0));
     Mode->ToggleBuildMode();
+    Test->TestTrue(TEXT("The board contains multiple rows of hex cells"), Mode->GetBuildCells().Num() >= 24);
+    const FVector TurretCell = Mode->GetBuildSocket();
+    Test->TestFalse(TEXT("Clicks outside the board cannot change the selected hex"), Mode->SelectBuildCell(TurretCell + FVector(3000, 0, 0)));
+    Mode->MoveBuildSelection(FVector::ForwardVector);
+    Test->TestTrue(TEXT("A cardinal stick direction selects a neighboring hex"), Mode->GetBuildSocket().X > TurretCell.X);
+    Mode->SelectBuildCell(TurretCell);
+    UAbilitySystemComponent* BuilderASC = Player->GetAbilitySystemComponent();
+    int32 ConstructionCommits = 0;
+    const FDelegateHandle ConstructionProbe = BuilderASC->AbilityCommittedCallbacks.AddStatic(
+        &OnConstructionCommitted, &ConstructionCommits);
     Mode->ConfirmBuild();
     Test->TestTrue(TEXT("The selected socket has a turret"), Mode->IsBuildSocketOccupied());
     Test->TestEqual(TEXT("A turret costs 30 stones"), Mode->GetStones(), 90);
+    if (AHBStructure* Turret = Mode->GetSelectedTurret())
+    {
+        Test->TestEqual(TEXT("Turret has its own GAS fire ability"), Turret->GetAbilitySystemComponent()->GetActivatableAbilities().Num(), 1);
+        Test->TestEqual(TEXT("Turret can take damage"), HBApplyDamageEffect(Player, Turret, 30.0f), 30.0f);
+        Mode->RepairGate();
+        Test->TestEqual(TEXT("Repair targets the selected turret in build mode"), Turret->GetHealth(), Turret->GetMaxHealth());
+        Test->TestEqual(TEXT("Repair costs 20 stones"), Mode->GetStones(), 70);
+        Mode->RepairGate();
+        Test->TestEqual(TEXT("A full-health turret cannot charge for repair"), Mode->GetStones(), 70);
+        Mode->ConfirmBuild();
+        Test->TestTrue(TEXT("Upgrade grants a persistent effect on the turret ASC"), Turret->IsUpgraded());
+        Test->TestEqual(TEXT("Upgrade increases targeting range"), Turret->GetFireRange(), 900.0f);
+        Test->TestEqual(TEXT("Upgrade costs 25 stones"), Mode->GetStones(), 45);
+        Mode->ConfirmBuild();
+        Test->TestEqual(TEXT("Repeating an upgrade leaves stone balance intact"), Mode->GetStones(), 45);
+    }
+    Mode->CycleBuildSocket();
+    Mode->SwitchBuildType();
+    Mode->RotateBuildFence();
+    const FVector FenceCell = Mode->GetBuildSocket();
+    Mode->ConfirmBuild();
+    AHBStructure* Fence = Mode->GetSelectedStructure();
+    if (Test->TestNotNull(TEXT("A second hex can hold a fence"), Fence))
+    {
+        Test->TestTrue(TEXT("The placed structure is a fence"), Fence->IsFence());
+        Test->TestEqual(TEXT("Fence owns 220 GAS health"), Fence->GetHealth(), 220.0f);
+        Test->TestTrue(TEXT("Fence orientation follows the board preview"), FMath::IsNearlyEqual(Fence->GetActorRotation().Yaw, 60.0, 0.01));
+        Mode->ConfirmBuild();
+        Test->TestEqual(TEXT("Building cannot overwrite a fence"), Mode->GetStones(), 30);
+        Test->TestEqual(TEXT("Fence takes damage through the shared execution"), HBApplyDamageEffect(Player, Fence, 38.0f), 38.0f);
+        bool bFenceRepairApplied = false;
+        UAbilitySystemComponent* FenceASC = Fence->GetAbilitySystemComponent();
+        const FDelegateHandle RepairProbe = FenceASC->OnGameplayEffectAppliedDelegateToSelf.AddStatic(
+            &OnFenceRepairApplied, BuilderASC, &bFenceRepairApplied);
+        Mode->RepairGate();
+        FenceASC->OnGameplayEffectAppliedDelegateToSelf.Remove(RepairProbe);
+        Test->TestTrue(TEXT("Fence repair applies a HealthDelta GE from the player ASC"), bFenceRepairApplied);
+        Test->TestEqual(TEXT("Repair restores fence health"), Fence->GetHealth(), 220.0f);
+    }
+    Mode->SwitchBuildType();
+    Test->TestTrue(TEXT("World-space selection snaps back to the turret cell"), Mode->SelectBuildCell(TurretCell));
     Mode->AdvancePhase();
     Test->TestEqual(TEXT("Prep advances to Defense"), Mode->GetPhase(), EHBPhase::EHBP_Defense);
     Test->TestEqual(TEXT("The first wave spawns six enemies at threat nine"), Mode->GetEnemies().Num(), 6);
+    Test->TestFalse(TEXT("Starting Defense automatically exits build mode"), Player->IsBuilding());
+    Mode->ConfirmBuild();
+    Mode->RepairGate();
+    Test->TestEqual(TEXT("Construction stays locked during waves"), Mode->GetStones(), 10);
+    BuilderASC->AbilityCommittedCallbacks.Remove(ConstructionProbe);
+    Test->TestEqual(TEXT("GAS commits the five successful construction operations only"), ConstructionCommits, 5);
+    if (IsValid(Fence) && !Mode->GetEnemies().IsEmpty())
+    {
+        if (AHBEnemyCharacter* Blocked = Mode->GetEnemies()[0].Get())
+        {
+            const FVector Spawn = Blocked->GetActorLocation();
+            Blocked->SetActorLocation(FVector(FenceCell.X + 175.0, FenceCell.Y, Spawn.Z));
+            Test->TestTrue(TEXT("Fence is the blocking target on an enemy path"),
+                Mode->FindBlockingFence(Blocked, FenceCell - FVector(100.0, 0.0, 0.0)) == Fence);
+            Blocked->SetActorLocation(Spawn);
+        }
+    }
     return true;
 }
 
@@ -469,6 +590,26 @@ bool FHBVerifyArenaDefense::Update()
         Test->TestEqual(TEXT("All five waves ran"), LastClearedWave, 5);
         Test->TestEqual(TEXT("Defense victory returns to Town"), Mode->GetPhase(), EHBPhase::EHBP_Town);
         Test->TestEqual(TEXT("Defense victory advances the cycle"), Mode->GetCycle(), 2);
+        if (AHBStructure* Turret = Mode->GetSelectedTurret())
+        {
+            HBApplyDamageEffect(Mode->GetPlayer(), Turret, Turret->GetMaxHealth());
+        }
+        Test->TestFalse(TEXT("A destroyed turret releases its socket"), Mode->IsBuildSocketOccupied());
+        Mode->ToggleBuildMode();
+        Mode->ConfirmBuild();
+        const AHBStructure* Rebuilt = Mode->GetSelectedTurret();
+        Test->TestTrue(TEXT("Destroyed turret can be replaced at the same socket"), Rebuilt && Rebuilt->IsAlive() && !Rebuilt->IsUpgraded());
+        Mode->ToggleBuildMode();
+        UHBLoadoutComponent* Loadout = Mode->GetPlayer()->GetLoadout();
+        const int32 Stones = Mode->GetStones();
+        const float PulsePower = Loadout->GetSlotSpec(1).fPower;
+        Test->TestTrue(TEXT("The Raider Axe remains in inventory into the next cycle"), Loadout->OwnsItem(1));
+        Test->TestTrue(TEXT("Town permits spending Stones to upgrade Pulse"), Loadout->UpgradeSkill(EHBAbility::EHBA_Pulse));
+        Test->TestEqual(TEXT("Pulse is now GAS ability spec level two"), Loadout->GetSkillLevel(EHBAbility::EHBA_Pulse), 2);
+        Test->TestEqual(TEXT("The upgrade spends 20 Stones"), Mode->GetStones(), Stones - 20);
+        Test->TestEqual(TEXT("The upgraded spec has more Pulse power"), Loadout->GetSlotSpec(1).fPower, PulsePower + 12.0f);
+        Test->TestTrue(TEXT("Another slot can use the upgraded Pulse"), Loadout->AssignAbilityToSlot(5, EHBAbility::EHBA_Pulse));
+        Test->TestEqual(TEXT("The reassigned slot shares the same skill level and power"), Loadout->GetSlotSpec(5).fPower, PulsePower + 12.0f);
         return true;
     }
     if (Mode->GetWave() > LastClearedWave)
@@ -522,7 +663,7 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     this->TestTrue(TEXT("The full-game HUD is an active CommonUI screen"), CommonHUD && CommonHUD->IsActivated());
     this->TestEqual(TEXT("Arena uses its own Widget Blueprint"), HUD->GetClass()->GetName(), FString(TEXT("WBP_DemoArenaHUD_C")));
     this->TestEqual(TEXT("Arena shares the GAS mannequin"), Player->GetClass()->GetName(), FString(TEXT("BP_GASDemoPlayer_C")));
-    this->TestEqual(TEXT("Arena grants six abilities"), Player->GetAbilitySystemComponent()->GetActivatableAbilities().Num(), 6);
+    this->TestEqual(TEXT("Arena grants six combat abilities and construction"), Player->GetAbilitySystemComponent()->GetActivatableAbilities().Num(), 7);
     this->TestEqual(TEXT("Gate starts at full HP"), Mode->GetGateHealth(), 350.0f);
     this->TestEqual(TEXT("Anima starts at full HP"), Mode->GetCoreHealth(), 250.0f);
     AHBStructure* Gate = Mode->GetDefenseTarget();
@@ -531,9 +672,15 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     this->TestEqual(TEXT("Gate loses health through its AttributeSet"), Mode->GetGateHealth(), 342.0f);
     Gate->Repair();
     this->TestEqual(TEXT("Gate repair restores its GAS health"), Mode->GetGateHealth(), 350.0f);
+    const FVector CampStart = Player->GetActorLocation();
     Mode->AdvancePhase();
     this->TestEqual(TEXT("Advance enters Dungeon"), Mode->GetPhase(), EHBPhase::EHBP_Dungeon);
-    if (!this->TestEqual(TEXT("Dungeon spawns six enemies"), Mode->GetEnemies().Num(), 6)) { return false; }
+    this->TestTrue(TEXT("The Dungeon trail starts beside the camp"),
+        FVector::DistSquaredXY(CampStart, Player->GetActorLocation()) <= FMath::Square(400.0));
+    this->TestFalse(TEXT("The camp gate remains visible in Dungeon"), Gate->IsHidden());
+    if (!this->TestEqual(TEXT("Dungeon spawns six main enemies and four side guards"), Mode->GetEnemies().Num(), 10)) { return false; }
+    this->TestEqual(TEXT("Six enemies gate extraction"), Mode->GetDungeonEnemiesRemaining(), 6);
+    this->TestTrue(TEXT("The elite guards the deep cache"), Mode->IsGreedLocked(2));
     UHBPracticeWidget* GameplayPanel = Cast<UHBPracticeWidget>(HUD->GetWidgetFromName(TEXT("GameplayPanel")));
     if (!this->TestNotNull(TEXT("Arena gameplay panel mounted"), GameplayPanel)) { return false; }
     GameplayPanel->Refresh();
@@ -551,7 +698,7 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     this->TestEqual(TEXT("DemoArena reset preserves the player's location"), Player->GetActorLocation(), ResetLocation);
     this->TestEqual(TEXT("DemoArena reset preserves the Dungeon phase"), Mode->GetPhase(), EHBPhase::EHBP_Dungeon);
     if (!this->TestTrue(TEXT("DemoArena reset leaves the active enemies in place"),
-        Mode->GetEnemies().Num() == 6 && Mode->GetEnemies()[0].Get() == Enemy)) { return false; }
+        Mode->GetEnemies().Num() == 10 && Mode->GetEnemies()[0].Get() == Enemy)) { return false; }
     this->TestEqual(TEXT("Guard casts in DemoArena"), Player->GetLoadout()->TryActivateSlot(3, nullptr, ResetLocation, false), EHBActionResult::EHBAR_Accepted);
     GameplayPanel->Refresh();
     const UTextBlock* GuardSlot = Cast<UTextBlock>(GameplayPanel->GetWidgetFromName(TEXT("Ability3")));
@@ -569,6 +716,8 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     this->TestTrue(TEXT("The Guard slot shows Ready after reset"), GuardSlot && GuardSlot->GetText().ToString().Contains(TEXT("Ready")));
     this->TestEqual(TEXT("Dungeon spawns the combat enemy Blueprint"), Enemy->GetClass()->GetName(), FString(TEXT("BP_DemoArenaEnemy_C")));
     this->TestTrue(TEXT("Dungeon enemy AI is enabled"), Enemy->IsActorTickEnabled());
+    this->TestTrue(TEXT("Ordinary Dungeon enemies own a GAS melee ability"),
+        Enemy->GetAbilitySystemComponent()->FindAbilitySpecFromClass(UHBGA_EnemyMelee::StaticClass()) != nullptr);
     const FVector MeshFacing = Enemy->GetMesh()->GetComponentQuat().RotateVector(FVector::RightVector);
     this->TestTrue(TEXT("Manny faces the same direction as the enemy actor"), FVector::DotProduct(MeshFacing, Enemy->GetActorForwardVector()) > 0.99f);
     FHitResult FloorHit;
@@ -576,10 +725,46 @@ bool FHBDemoArenaTest::RunTest(const FString& Parameters)
     FloorQuery.AddIgnoredActor(Player);
     this->TestTrue(TEXT("Dungeon floor supports mouse targeting"), Player->GetWorld()->LineTraceSingleByChannel(
         FloorHit, Player->GetActorLocation(), Player->GetActorLocation() - FVector(0, 0, 500), ECC_GameTraceChannel1, FloorQuery));
+    Player->SetActorLocation(Enemy->GetActorLocation() - FVector(300.0, 0.0, 0.0));
     const float Health = Enemy->GetHealth();
     this->TestEqual(TEXT("Pulse casts in Dungeon"), Player->GetLoadout()->TryActivateSlot(1, nullptr, Enemy->GetActorLocation(), false), EHBActionResult::EHBAR_Accepted);
     SendPulseImpact(*Player);
     this->TestEqual(TEXT("Pulse damages the live enemy through GAS"), Enemy->GetHealth(), Health - 45.0f);
+    Controller->HBGASReset();
+    Player->SetActorLocation(ResetLocation);
+    AHBEnemyCharacter* Elite = nullptr;
+    for (const TWeakObjectPtr<AHBEnemyCharacter>& Entry : Mode->GetEnemies())
+    {
+        if (Entry.IsValid() && Entry->ActorHasTag(TEXT("HB_DungeonGuard_Elite")))
+        {
+            Elite = Entry.Get();
+            break;
+        }
+    }
+    if (!this->TestNotNull(TEXT("Dungeon spawns a Slam elite"), Elite)) { return false; }
+    UAbilitySystemComponent* EliteASC = Elite->GetAbilitySystemComponent();
+    this->TestEqual(TEXT("Elite owns melee and Slam through GAS"), EliteASC->GetActivatableAbilities().Num(), 2);
+    const FVector EliteSpawn = Elite->GetActorLocation();
+    // Keep the elite's Pulse test away from the entrance enemy reserved for the melee test.
+    const FVector AwayFromEntranceEnemy = (ResetLocation - Enemy->GetActorLocation()).GetSafeNormal2D();
+    Elite->SetActorLocation(ResetLocation + AwayFromEntranceEnemy * 220.0f);
+    FGameplayEventData Slam;
+    Slam.EventTag = HBArenaTags::EnemySlam;
+    Slam.Instigator = Elite;
+    Slam.Target = Player;
+    this->TestEqual(TEXT("The enemy ASC responds to the Slam Gameplay Event"), EliteASC->HandleGameplayEvent(Slam.EventTag, &Slam), 1);
+    this->TestTrue(TEXT("Slam owns its casting tag during windup"), EliteASC->HasMatchingGameplayTag(HBArenaTags::EnemyCasting));
+    this->TestEqual(TEXT("Slam deals no damage during windup"), Player->GetHealth(), Player->GetMaxHealth());
+    const FVector EliteAim = Elite->GetActorLocation();
+    this->TestEqual(TEXT("Pulse casts against the elite"), Player->GetLoadout()->TryActivateSlot(1, nullptr, EliteAim, false), EHBActionResult::EHBAR_Accepted);
+    SendPulseImpact(*Player);
+    this->TestTrue(TEXT("Pulse Exposes the elite during Slam"), EliteASC->HasMatchingGameplayTag(HBGetExposedTag()));
+    this->TestEqual(TEXT("Bolt can follow up against the elite"), Player->GetLoadout()->TryActivateSlot(5, Elite, EliteAim, false), EHBActionResult::EHBAR_Accepted);
+    this->TestFalse(TEXT("An Exposed Bolt cancels the active Slam"), EliteASC->HasMatchingGameplayTag(HBArenaTags::EnemyCasting));
+    this->TestTrue(TEXT("Interrupt applies timed stagger to the elite"), EliteASC->HasMatchingGameplayTag(HBArenaTags::Staggered));
+    if (!this->TestTrue(TEXT("The entrance enemy survives the isolated elite test"), IsValid(Enemy) && Enemy->IsAlive())) { return false; }
+    Elite->SetActorLocation(EliteSpawn);
+    Controller->HBGASReset();
     ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDungeon(this, Mode, Enemy, false, FPlatformTime::Seconds() + 8.0));
     ADD_LATENT_AUTOMATION_COMMAND(FHBVerifyArenaDefense(this, Mode, 0, false, FPlatformTime::Seconds() + 35.0));
     return true;

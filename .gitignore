@@ -10,3 +10,18 @@ Saved/
 *.VC.opendb
 *.pdb
 __pycache__/
+
+/*.slnx
+/Docs/
+/umg_mcp_server.log
+
+# Local demo drafts and legacy practice files
+/Content/README.md
+/00-CACH-CAP-NHAT.txt
+/Scripts/create_gas_demo.py
+/.vscode/c_cpp_properties.json
+/.vscode/launch.json
+/.vscode/settings.json
+/README.md
+/Content/Maps/GASDemoArena.umap
+/Content/GASDemo/BP_GASDemoGameMode.uasset

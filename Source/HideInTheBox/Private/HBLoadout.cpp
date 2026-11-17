@@ -3,8 +3,34 @@
 #include "HBGameplayAbility.h"
 #include "HBDebugSubsystem.h"
 #include "HBPlayerCharacter.h"
+#include "HBGameMode.h"
 #include "AbilitySystemComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+
+namespace
+{
+    struct FEquipment
+    {
+        const TCHAR* Name;
+        const TCHAR* Perk;
+        const TCHAR* Mesh;
+        const TCHAR* Socket;
+        FTransform Fit;
+    };
+
+    const FEquipment Equipment[] = {
+        { TEXT("Steel Sword"), TEXT("Balanced damage and reach"), TEXT("/Game/DemoArena/Art/Meshes/SM_VaultKnightSword/StaticMeshes/SM_VaultKnightSword"),
+          TEXT("handslot_r"), FTransform(FRotator(0,180,0), FVector(0,0,3.33), FVector(1.05)) },
+        { TEXT("Raider Axe"), TEXT("Basic +10 damage, -15 cm reach"), TEXT("/Game/DemoArena/Art/Equipment/axe_1handed/StaticMeshes/axe_1handed"),
+          TEXT("handslot_r"), FTransform(FRotator(0,180,0), FVector(0,0,3.33), FVector(1.14)) },
+        { TEXT("Knight Shield"), TEXT("Standard Guard duration"), TEXT("/Game/DemoArena/Art/Meshes/SM_VaultKnightShield/StaticMeshes/SM_VaultKnightShield"),
+          TEXT("handslot_l"), FTransform(FRotator::ZeroRotator, FVector(0,15.59,1.70), FVector(.83)) },
+        { TEXT("Spiked Bulwark"), TEXT("Guard lasts +0.75 s"), TEXT("/Game/DemoArena/Art/Equipment/shield_spikes/StaticMeshes/shield_spikes"),
+          TEXT("handslot_l"), FTransform(FRotator::ZeroRotator, FVector(0,15.59,1.70), FVector(.96)) },
+    };
+    static_assert(UE_ARRAY_COUNT(Equipment) == UHBLoadoutComponent::ItemCount);
+}
 
 UHBLoadoutData::UHBLoadoutData()
 {
@@ -81,6 +107,104 @@ bool UHBLoadoutComponent::AssignAbilityToSlot(int32 iSlot, EHBAbility Ability)
     return true;
 }
 
+int32 UHBLoadoutComponent::GetSkillLevel(EHBAbility Ability) const
+{
+    const AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    if (Player && FindSpec(Ability))
+    {
+        const FGameplayAbilitySpec* Granted = Player->GetAbilitySystemComponent()->FindAbilitySpecFromClass(GetAbilityClass(Ability));
+        if (Granted) { return Granted->Level; }
+    }
+    return 1;
+}
+
+bool UHBLoadoutComponent::UpgradeSkill(EHBAbility Ability)
+{
+    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    AHBGameMode* Mode = GetWorld() ? GetWorld()->GetAuthGameMode<AHBGameMode>() : nullptr;
+    if (!Player || !Player->HasAuthority() || !Mode || !Mode->CanEditLoadout() || !FindSpec(Ability)) { return false; }
+    UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();
+    FGameplayAbilitySpec* Granted = ASC->FindAbilitySpecFromClass(GetAbilityClass(Ability));
+    if (!Granted || Granted->IsActive() || Granted->Level >= MaxSkillLevel || !Mode->SpendSkillStones(SkillUpgradeCost(Granted->Level)))
+    {
+        return false;
+    }
+    ++Granted->Level;
+    ASC->MarkAbilitySpecDirty(*Granted);
+    return true;
+}
+
+bool UHBLoadoutComponent::OwnsItem(int32 Item) const
+{
+    return Item >= 0 && Item < ItemCount && (OwnedEquipment & (1 << Item)) != 0;
+}
+
+bool UHBLoadoutComponent::IsItemEquipped(int32 Item) const
+{
+    return Item == EquippedWeapon || Item == EquippedShield;
+}
+
+bool UHBLoadoutComponent::UnlockEquipment(int32 Item)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority() || Item < 0 || Item >= ItemCount || OwnsItem(Item)) { return false; }
+    OwnedEquipment |= 1 << Item;
+    return true;
+}
+
+FString UHBLoadoutComponent::GetItemName(int32 Item)
+{
+    return Item >= 0 && Item < ItemCount ? FString(Equipment[Item].Name) : FString();
+}
+
+FString UHBLoadoutComponent::GetItemPerk(int32 Item)
+{
+    return Item >= 0 && Item < ItemCount ? FString(Equipment[Item].Perk) : FString();
+}
+
+bool UHBLoadoutComponent::EquipItem(int32 Item)
+{
+    AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(GetOwner());
+    const AHBGameMode* Mode = GetWorld() ? GetWorld()->GetAuthGameMode<AHBGameMode>() : nullptr;
+    if (!Player || !Player->HasAuthority() || !Mode || !Mode->CanEditLoadout() || !OwnsItem(Item) || IsItemEquipped(Item)) { return false; }
+    const FEquipment& Entry = Equipment[Item];
+    UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, Entry.Mesh);
+    if (!Player->SetArenaEquipmentMesh(Entry.Socket, Mesh, Entry.Fit)) { return false; }
+    if (Item < 2) { EquippedWeapon = Item; }
+    else { EquippedShield = Item; }
+    return true;
+}
+
+FHBAbilitySpec UHBLoadoutComponent::GetEffectiveSpec(EHBAbility Ability) const
+{
+    const FHBAbilitySpec* Base = FindSpec(Ability);
+    if (!Base) { return FHBAbilitySpec(); }
+    FHBAbilitySpec Spec = *Base;
+    const int32 BonusLevel = FMath::Max(0, GetSkillLevel(Ability) - 1);
+    switch (Ability)
+    {
+        case EHBAbility::EHBA_Basic:
+            Spec.fPower += 8.0f * BonusLevel + (EquippedWeapon == 1 ? 10.0f : 0.0f);
+            if (EquippedWeapon == 1) { Spec.fRange = FMath::Max(1.0f, Spec.fRange - 15.0f); }
+            break;
+        case EHBAbility::EHBA_Pulse:
+            Spec.fPower += 12.0f * BonusLevel;
+            Spec.fRadius += 28.0f * BonusLevel;
+            break;
+        case EHBAbility::EHBA_Dodge:
+            Spec.fRange += 55.0f * BonusLevel;
+            Spec.fDuration += 0.04f * BonusLevel;
+            break;
+        case EHBAbility::EHBA_Guard:
+            Spec.fPower = FMath::Min(0.95f, Spec.fPower + 0.08f * BonusLevel);
+            Spec.fDuration += EquippedShield == 3 ? 0.75f : 0.0f;
+            break;
+        case EHBAbility::EHBA_Mend: Spec.fPower += 12.0f * BonusLevel; break;
+        case EHBAbility::EHBA_Bolt: Spec.fPower += 10.0f * BonusLevel; break;
+        default: break;
+    }
+    return Spec;
+}
+
 EHBAbility UHBLoadoutComponent::GetSlotAbility(int32 iSlot) const
 {
     return this->Slots.IsValidIndex(iSlot) ? this->Slots[iSlot] : EHBAbility::EHBA_Basic;
@@ -88,8 +212,7 @@ EHBAbility UHBLoadoutComponent::GetSlotAbility(int32 iSlot) const
 
 FHBAbilitySpec UHBLoadoutComponent::GetSlotSpec(int32 iSlot) const
 {
-    const FHBAbilitySpec* Spec = this->Slots.IsValidIndex(iSlot) ? this->FindSpec(this->Slots[iSlot]) : nullptr;
-    return Spec ? *Spec : FHBAbilitySpec();
+    return Slots.IsValidIndex(iSlot) ? GetEffectiveSpec(Slots[iSlot]) : FHBAbilitySpec();
 }
 
 float UHBLoadoutComponent::GetSlotCooldown(int32 iSlot) const
@@ -113,11 +236,12 @@ EHBActionResult UHBLoadoutComponent::TryActivateSlot(int32 iSlot, AHBEnemyCharac
     }
     AHBPlayerCharacter* Player = Cast<AHBPlayerCharacter>(this->GetOwner());
     const EHBAbility Ability = this->Slots[iSlot];
-    const FHBAbilitySpec* Spec = this->FindSpec(Ability);
-    if (!Player || !Spec || !Player->IsAlive() || Player->IsBuilding() || Player->IsDodging() || (Player->IsAttacking() && Ability != EHBAbility::EHBA_Basic))
+    if (!Player || !FindSpec(Ability) || !Player->IsAlive() || Player->IsBuilding() || Player->IsDodging() || (Player->IsAttacking() && Ability != EHBAbility::EHBA_Basic))
     {
         return this->Resolve(iSlot, EHBActionResult::EHBAR_Blocked);
     }
+    const FHBAbilitySpec Effective = GetEffectiveSpec(Ability);
+    const FHBAbilitySpec* Spec = &Effective;
     // Basic attack always has no mana cost or extra cooldown, as required by the GDD.
     const float fCost = Spec->GetManaCost(Ability);
     const float fCooldown = Ability == EHBAbility::EHBA_Basic ? 0.0f : Spec->fCooldown;

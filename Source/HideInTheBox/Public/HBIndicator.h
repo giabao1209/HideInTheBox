@@ -16,7 +16,10 @@ public:
     void SetRingMaterial(class UMaterialInterface* NewMaterial);
     void PlayBurst(const FVector& Position, float fRadius, const FLinearColor& Color, float fDuration);
     void PlayBolt(const FVector& Origin, const FVector& Impact, UMaterialInterface* BoltMaterial, float Duration);
+    void PlaySprite(const FVector& Position, UMaterialInterface* SpriteMaterial, const FLinearColor& Color, float Size, float Duration);
     void ShowAt(const FVector& Position, float fRadius, float fThickness, const FLinearColor& Color);
+    void SetHexCells(const TArray<FVector>& Cells, float Radius, float Width, bool bFenceGuide = false);
+    void SetColor(const FLinearColor& Color);
 protected:
     virtual void BeginPlay() override;
 private:

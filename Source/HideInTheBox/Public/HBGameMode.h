@@ -9,6 +9,7 @@ class AHBEnemyCharacter;
 class AHBStructure;
 class AActor;
 class UUserWidget;
+struct FGameplayTag;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FHBPhaseChanged, EHBPhase, PreviousPhase, EHBPhase, NewPhase);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FHBWaveStarted, int32, WaveIndex, int32, EnemyCount);
@@ -46,6 +47,24 @@ public:
 
     AHBPlayerCharacter* GetPlayer() const;
     AHBStructure* GetDefenseTarget() const;
+    AHBStructure* FindNearbyTurret(const FVector& Origin, float Range) const;
+    AHBStructure* FindBlockingFence(const AActor* Mover, const FVector& Destination) const;
+    AHBStructure* GetSelectedTurret() const;
+    AHBStructure* GetSelectedStructure() const;
+    bool ExecuteConstruction(bool bRepair);
+    bool CanAffordSelectedBuild() const;
+    const TArray<FVector>& GetBuildCells() const { return BuildCells; }
+    bool SelectBuildCell(const FVector& Location);
+    void MoveBuildSelection(const FVector& Direction);
+    void SwitchBuildType();
+    void RotateBuildFence();
+    EHBStructure GetBuildType() const { return BuildType; }
+    float GetBuildYaw() const { return BuildYaw; }
+    static constexpr float BuildCellRadius = 104.0f;
+    static constexpr int32 BuildCost = 30;
+    static constexpr int32 FenceCost = 15;
+    static constexpr int32 UpgradeCost = 25;
+    static constexpr int32 RepairCost = 20;
     AHBEnemyCharacter* FindEnemy(const FVector& Origin, const FVector& Aim, float fRange) const;
     const TArray<TWeakObjectPtr<AHBEnemyCharacter>>& GetEnemies() const { return this->Enemies; }
     UFUNCTION(BlueprintPure, Category="Demo|State") EHBPhase GetPhase() const { return this->Phase; }
@@ -89,6 +108,7 @@ protected:
 
 private:
     bool DiscoverArenaActors();
+    bool CreateBuildBoard();
     AActor* FindFirstTaggedActor(FName Tag) const;
     void FindTaggedActors(FName Tag, TArray<TObjectPtr<AActor>>& OutActors) const;
     FVector GetTaggedLocation(FName Tag, const FVector& Fallback) const;
@@ -100,14 +120,18 @@ private:
     void ClearEnemies();
     void RespawnPlayer();
     void Transition(EHBPhase NewPhase);
-    void SpawnEnemyAt(const FVector& Position, const FRotator& Rotation);
+    AHBEnemyCharacter* SpawnEnemyAt(const FVector& Position, const FRotator& Rotation);
+    void RequestConstruction(FGameplayTag EventTag);
     UPROPERTY(Transient) TObjectPtr<AHBStructure> Gate;
     UPROPERTY(Transient) TObjectPtr<AHBStructure> Anima;
     UPROPERTY(Transient) TArray<TObjectPtr<AActor>> BuildSockets;
     UPROPERTY(Transient) TArray<TObjectPtr<AActor>> GreedCaches;
     UPROPERTY(Transient) TArray<TObjectPtr<AActor>> DungeonSpawnPoints;
     UPROPERTY(Transient) TArray<TObjectPtr<AActor>> WaveSpawnPoints;
-    UPROPERTY(Transient) TArray<TObjectPtr<AHBStructure>> Turrets;
+    UPROPERTY(Transient) TArray<TObjectPtr<AHBStructure>> Structures;
+    TArray<FVector> BuildCells;
+    EHBStructure BuildType = EHBStructure::EHBS_Turret;
+    float BuildYaw = 0.0f;
     TArray<TWeakObjectPtr<AHBEnemyCharacter>> Enemies;
     HBRuleCore::FGreedLedger Greed;
     EHBPhase Phase = EHBPhase::EHBP_Town;
@@ -122,4 +146,19 @@ private:
     FTimerHandle WaveTimer;
     FTimerHandle BreakTimer;
     FTimerHandle RespawnTimer;
+
+public:
+    bool UsesDungeonRoute() const;
+    int32 GetDungeonEnemiesRemaining() const;
+    bool IsGreedLocked(int32 Index) const;
+    FVector GetDungeonExitPosition() const;
+    bool IsAtDungeonExit(const AHBPlayerCharacter& Player) const;
+    bool CanEditLoadout() const;
+    bool SpendSkillStones(int32 Cost);
+    static constexpr int32 MaxDebugStones = 999999;
+    void SetDebugStones(int32 Stones);
+
+private:
+    FString GetDungeonExitHint(const AHBPlayerCharacter& Player) const;
+    TWeakObjectPtr<AActor> DungeonExit;
 };

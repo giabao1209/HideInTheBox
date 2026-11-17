@@ -74,13 +74,28 @@ public:
     void ResetResources();
     const FHBAbilitySpec* FindSpec(EHBAbility Ability) const;
     TSubclassOf<UHBGameplayAbility> GetAbilityClass(EHBAbility Ability) const;
+    int32 GetSkillLevel(EHBAbility Ability) const;
+    bool UpgradeSkill(EHBAbility Ability);
+    bool UnlockEquipment(int32 Item);
+    bool EquipItem(int32 Item);
+    bool OwnsItem(int32 Item) const;
+    bool IsItemEquipped(int32 Item) const;
+    static constexpr int32 ItemCount = 4;
+    static constexpr int32 MaxSkillLevel = 3;
+    static int32 SkillUpgradeCost(int32 Level) { return 20 * Level; }
+    static FString GetItemName(int32 Item);
+    static FString GetItemPerk(int32 Item);
     UPROPERTY(BlueprintAssignable, Category="Loadout") FHBActionResolved OnActionResolved;
 protected:
     virtual void BeginPlay() override;
     UPROPERTY(EditDefaultsOnly, Category="Loadout") TObjectPtr<UHBLoadoutData> Definition;
 private:
     EHBActionResult Resolve(int32 iSlot, EHBActionResult Result);
+    FHBAbilitySpec GetEffectiveSpec(EHBAbility Ability) const;
     UPROPERTY(Transient) TArray<EHBAbility> Slots;
     bool bUsedDefaultDefinition = false;
     FActiveGameplayEffectHandle ManaRegenerationHandle;
+    uint8 OwnedEquipment = 0b0101;
+    int32 EquippedWeapon = 0;
+    int32 EquippedShield = 2;
 };

@@ -135,4 +135,5 @@ private:
     int32 iHitCount = 0;
     FTimerHandle AttackHitTimer;
     FTimerHandle AttackEndTimer;
+    void OnGuardingChanged(const FGameplayTag Tag, int32 NewCount);
 };

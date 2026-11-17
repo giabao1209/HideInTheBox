@@ -10,6 +10,12 @@
 #include "HBStructure.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "HBEffects.h"
+#include "HBArenaAbilities.h"
+#include "HBIndicator.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemBlueprintLibrary.h"
+#include "Misc/PackageName.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Engine/World.h"
 
 AHBEnemyCharacter::AHBEnemyCharacter()
@@ -19,6 +25,12 @@ AHBEnemyCharacter::AHBEnemyCharacter()
     this->GetCharacterMovement()->MaxWalkSpeed = 180.0f;
     this->fMaxHealth = 90.0f;
     this->Tint = FLinearColor(0.8f, 0.15f, 0.12f);
+    SlamAbilityClass = UHBGA_EnemySlam::StaticClass();
+    if (FPackageName::DoesPackageExist(TEXT("/Game/GASDemo/GAS/Abilities/GA_GASDemo_EnemySlam")))
+    {
+        static ConstructorHelpers::FClassFinder<UHBGA_EnemySlam> Slam(TEXT("/Game/GASDemo/GAS/Abilities/GA_GASDemo_EnemySlam"));
+        if (Slam.Succeeded()) { SlamAbilityClass = Slam.Class; }
+    }
 }
 
 void AHBEnemyCharacter::BeginPlay()
@@ -28,6 +40,10 @@ void AHBEnemyCharacter::BeginPlay()
     if (this->Mode.IsValid())
     {
         this->Mode->RegisterEnemy(this);
+        if (HasAuthority() && !this->Mode->IsGASDemo())
+        {
+            AbilitySystem->GiveAbility(FGameplayAbilitySpec(UHBGA_EnemyMelee::StaticClass(), 1));
+        }
     }
     if (PracticeHealthWidgetClass && GetNetMode() != NM_DedicatedServer)
     {
@@ -35,7 +51,7 @@ void AHBEnemyCharacter::BeginPlay()
         HealthDisplay->SetupAttachment(GetRootComponent());
         HealthDisplay->SetRelativeLocation(FVector(0.0f, 0.0f, 112.0f));
         HealthDisplay->SetWidgetSpace(EWidgetSpace::Screen);
-        HealthDisplay->SetDrawSize(FVector2D(116.0, 24.0));
+        HealthDisplay->SetDrawSize(FVector2D(148.0, 24.0));
         HealthDisplay->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         HealthDisplay->SetWidgetClass(PracticeHealthWidgetClass);
         HealthDisplay->RegisterComponent();
@@ -44,6 +60,39 @@ void AHBEnemyCharacter::BeginPlay()
         {
             Widget->SetCombatant(this);
         }
+    }
+}
+
+void AHBEnemyCharacter::EnableSlam()
+{
+    if (!HasAuthority() || bSlamEnabled || !SlamAbilityClass)
+    {
+        return;
+    }
+    bSlamEnabled = true;
+    AbilitySystem->GiveAbility(FGameplayAbilitySpec(SlamAbilityClass, 1));
+    fMaxHealth = FMath::Max(fMaxHealth, 150.0f);
+    RestoreHealth();
+    ApplyArenaEliteFinish();
+}
+
+void AHBEnemyCharacter::ShowSlamWarning(FVector Position, float Radius, FLinearColor Color, UMaterialInterface* Material)
+{
+    if (!IsValid(SlamWarning))
+    {
+        SlamWarning = GetWorld()->SpawnActor<AHBIndicator>();
+        if (!SlamWarning) { return; }
+        SlamWarning->SetRingMaterial(Material);
+    }
+    SlamWarning->ShowAt(Position, Radius, 5.0f, Color);
+}
+
+void AHBEnemyCharacter::HideSlamWarning()
+{
+    if (IsValid(SlamWarning))
+    {
+        SlamWarning->Destroy();
+        SlamWarning = nullptr;
     }
 }
 
@@ -56,6 +105,12 @@ void AHBEnemyCharacter::Tick(float fDeltaSeconds)
     }
     const EHBPhase Phase = this->Mode->GetPhase();
     if (Phase != EHBPhase::EHBP_Dungeon && Phase != EHBPhase::EHBP_Defense)
+    {
+        return;
+    }
+    if (AbilitySystem->HasMatchingGameplayTag(HBArenaTags::EnemyAttacking) ||
+        AbilitySystem->HasMatchingGameplayTag(HBArenaTags::EnemyCasting) ||
+        AbilitySystem->HasMatchingGameplayTag(HBArenaTags::Staggered))
     {
         return;
     }
@@ -73,41 +128,46 @@ void AHBEnemyCharacter::Tick(float fDeltaSeconds)
     }
     else if (Phase == EHBPhase::EHBP_Defense)
     {
-        Target = this->Mode->GetDefenseTarget();
+        Target = this->Mode->FindNearbyTurret(GetActorLocation(), 185.0f);
+        if (!Target) { Target = this->Mode->GetDefenseTarget(); }
         fRange = 160.0f;
     }
     if (!IsValid(Target))
     {
         return;
     }
-    if (Phase == EHBPhase::EHBP_Dungeon && FVector::DistSquaredXY(this->GetActorLocation(), Target->GetActorLocation()) > FMath::Square(700.0f))
+    if (AHBStructure* Fence = Mode->FindBlockingFence(this, Target->GetActorLocation()))
     {
-        return;
+        Target = Fence;
+        fRange = 160.0f;
     }
     FVector Direction = Target->GetActorLocation() - this->GetActorLocation();
     Direction.Z = 0.0f;
     this->SetActorRotation(Direction.Rotation());
+    const UHBGA_EnemySlam* Slam = bSlamEnabled ? SlamAbilityClass->GetDefaultObject<UHBGA_EnemySlam>() : nullptr;
+    if (Slam && Direction.SizeSquared() <= FMath::Square(Slam->GetCastRange()))
+    {
+        FGameplayEventData Event;
+        Event.EventTag = HBArenaTags::EnemySlam;
+        Event.Instigator = this;
+        Event.Target = Target;
+        if (AbilitySystem->HandleGameplayEvent(Event.EventTag, &Event) > 0)
+        {
+            return;
+        }
+    }
     if (Direction.SizeSquared() > FMath::Square(fRange))
     {
         this->AddMovementInput(Direction.GetSafeNormal(), 1.0f, true);
         return;
     }
     this->GetCharacterMovement()->StopMovementImmediately();
-    if (this->GetWorld()->GetTimeSeconds() >= this->fNextAttackTime)
-    {
-        this->fNextAttackTime = this->GetWorld()->GetTimeSeconds() + 1.0f;
-        if (AttackMontage)
-        {
-            PendingAttackTarget = Target;
-            PendingAttackRange = fRange;
-            if (PlayAnimMontage(AttackMontage) > 0.0f)
-            {
-                return;
-            }
-            PendingAttackTarget.Reset();
-        }
-        ApplyMeleeDamage(Target);
-    }
+    FGameplayEventData Event;
+    Event.EventTag = HBArenaTags::EnemyMelee;
+    Event.Instigator = this;
+    Event.Target = Target;
+    Event.EventMagnitude = fRange;
+    AbilitySystem->HandleGameplayEvent(Event.EventTag, &Event);
 }
 
 void AHBEnemyCharacter::DeliverAnimationHit(UAnimSequenceBase* Animation)
@@ -119,18 +179,10 @@ void AHBEnemyCharacter::DeliverAnimationHit(UAnimSequenceBase* Animation)
         return;
     }
 
-    AActor* Target = PendingAttackTarget.Get();
-    PendingAttackTarget.Reset();
-    if (IsValid(Target) && FVector::DistSquaredXY(GetActorLocation(), Target->GetActorLocation()) <= FMath::Square(PendingAttackRange))
-    {
-        ApplyMeleeDamage(Target);
-        UHBDebugSubsystem::Record(this, TEXT("Combat"), TEXT("Enemy melee hit via montage notify"));
-    }
-}
-
-void AHBEnemyCharacter::ApplyMeleeDamage(AActor* Target)
-{
-    HBApplyDamageEffect(this, Target, 8.0f);
+    FGameplayEventData Event;
+    Event.EventTag = HBArenaTags::EnemyMeleeHit;
+    Event.Instigator = this;
+    UAbilitySystemBlueprintLibrary::SendGameplayEventToActor(this, Event.EventTag, Event);
 }
 
 void AHBEnemyCharacter::OnDeath()
@@ -144,6 +196,8 @@ void AHBEnemyCharacter::OnDeath()
 
 void AHBEnemyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    AbilitySystem->CancelAllAbilities();
+    HideSlamWarning();
     if (this->Mode.IsValid())
     {
         this->Mode->UnregisterEnemy(this);

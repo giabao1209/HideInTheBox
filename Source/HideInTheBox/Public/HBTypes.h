@@ -18,7 +18,7 @@ enum class EHBCommand : uint8
 UENUM(BlueprintType)
 enum class EHBStructure : uint8
 {
-    EHBS_Gate, EHBS_Anima, EHBS_Turret
+    EHBS_Gate, EHBS_Anima, EHBS_Turret, EHBS_Fence
 };
 
 namespace HBRules
